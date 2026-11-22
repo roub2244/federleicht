@@ -15,6 +15,7 @@ const ERASER_RADIUS = 12;                    // Radierer-Größe in Bildschirm-P
 const stage = document.getElementById('stage');
 const canvas = document.getElementById('canvas');
 const zoomButton = document.getElementById('btn-zoom');
+const modePill = document.getElementById('mode-pill');
 
 const strokes = [];                       // alle fertigen Striche dieser Seite
 const view = new View();                  // Zoom und Verschiebung
@@ -116,6 +117,11 @@ const app = {
     });
   },
 
+  // Radierer-Modus (per Knopf-Klick) oben anzeigen
+  setEraserMode(on) {
+    modePill.hidden = !on;
+  },
+
   panBy(dx, dy) {
     view.panBy(dx, dy);
     afterViewChange();
@@ -182,6 +188,7 @@ function afterViewChange() {
 }
 
 const input = setupInput(canvas, app);
+modePill.addEventListener('click', () => input.setStickyEraser(false));
 
 // ---------- Größe der Zeichenfläche ----------
 // ResizeObserver meldet sich, wenn sich die Größe ändert (z. B. Tablet drehen)

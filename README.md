@@ -8,6 +8,7 @@ Was schon geht:
 - Nur der **S Pen** zeichnet, die Linie wird dicker, wenn du fester drückst
 - **Stiftknopf gedrückt halten = Radierer** (löscht ganze Striche, ein blauer Kreis zeigt den Radierer).
   Wichtig: Den Knopf **vor** dem Aufsetzen drücken. Der blaue Kreis erscheint schon beim Schweben, dann weißt du, dass der Radierer bereit ist.
+- **Knopf kurz klicken (beim Schweben) = Radierer bleibt an**, bis du wieder klickst. Oben erscheint dann „Radierer an“.
 - **Gerade Linien:** Strich ziehen und den Stift am Ende kurz stillhalten (etwa eine halbe Sekunde).
   Dann wird daraus eine gerade Strecke vom Anfang bis zum Ende. Solange die Spitze unten bleibt, kannst du das Ende noch verschieben.
 - **1 Finger** verschiebt die Seite, **2 Finger** zoomen

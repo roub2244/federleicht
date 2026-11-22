@@ -22,6 +22,8 @@ const PALM_SIZE = 45;
 const ARM_MS = 400;
 // Kommt so lange (ms) kein Event vom aufliegenden Stift, gilt er als abgehoben
 const STALE_MS = 250;
+// Kurzer Klick auf den Knopf beim Schweben (kürzer als CLICK_MS) schaltet den Radierer dauerhaft an/aus
+const CLICK_MS = 350;
 
 // ---------- Die zwei wichtigsten Funktionen für den S Pen ----------
 //
@@ -97,6 +99,34 @@ export function setupInput(canvas, app) {
   let buttonReleasedAt = -Infinity;
 
   let lastContactTime = -Infinity;
+  let lastPenPos = [0, 0];         // letzte Stiftposition auf dem Bildschirm
+
+  // Knopf-KLICK beim Schweben = Radierer-Modus umschalten (bleibt an, bis du wieder klickst)
+  let stickyEraser = false;
+  let buttonPressedAt = -Infinity;
+  let contactSincePress = false;   // wurde zwischen Drücken und Loslassen aufgesetzt?
+  let contactSinceRelease = false;
+  let lastContactEnd = -Infinity;
+  let clickTimer = 0;
+
+  function setStickyEraser(on) {
+    stickyEraser = on;
+    app.setEraserMode(on);
+    if (!on && penMode === 'none') app.showEraser(null);
+  }
+
+  // Erst nach ARM_MS entscheiden, ob es ein Klick war: Setzt der Stift in der Zeit auf,
+  // war es "Knopf halten und radieren" und kein Klick.
+  function checkForClick() {
+    contactSinceRelease = false;
+    clearTimeout(clickTimer);
+    clickTimer = setTimeout(() => {
+      if (!contactSinceRelease) {
+        setStickyEraser(!stickyEraser);
+        app.debug.addLine(`Knopf-Klick → Radierer ${stickyEraser ? 'AN' : 'AUS'}`);
+      }
+    }, ARM_MS);
+  }
 
   // Alle aufliegenden Stift-Pointer beenden (falls das System uns kein pointerup schickt)
   function abortContacts() {
@@ -112,6 +142,7 @@ export function setupInput(canvas, app) {
 
   function handlePen(e) {
     lastPenTime = e.timeStamp;
+    lastPenPos = screenPos(e);
     const id = e.pointerId;
 
     // Der Stift hat Vorrang: Liegt schon ein "Finger" (= Handballen) auf, ignorieren wir ihn ab jetzt.
@@ -151,24 +182,38 @@ export function setupInput(canvas, app) {
     if (starting) {
       capture(id);
       contacts.add(id);
+      contactSincePress = true;
+      contactSinceRelease = true;
     }
     const touching = contacts.has(id) && !ended;
     if (ended) {
       contacts.delete(id);
       silentContacts.delete(id);
+      lastContactEnd = e.timeStamp;
     }
 
     let eraser;
     if (touching) {
       // Beim Aufsetzen: War der Knopf beim Schweben gedrückt?
       // Danach bleibt der Modus bis zum Abheben gleich (den Knopf sehen wir jetzt ja nicht mehr).
-      eraser = isEraserButton(e) || penMode === 'erase' || (starting && eraserReady(e.timeStamp));
+      eraser =
+        isEraserButton(e) || penMode === 'erase' || (starting && (stickyEraser || eraserReady(e.timeStamp)));
     } else if (contacts.size === 0 && !ended) {
       // Schweben: Knopf-Zustand merken
       const held = isButtonHeldWhileHovering(e);
-      if (buttonHeld && !held) buttonReleasedAt = e.timeStamp;
+      if (!buttonHeld && held) {
+        buttonPressedAt = e.timeStamp;
+        contactSincePress = false;
+      }
+      if (buttonHeld && !held) {
+        buttonReleasedAt = e.timeStamp;
+        // Ein Klick: kurz gedrückt, dabei nicht aufgesetzt, und nicht direkt nach dem Abheben
+        const short = e.timeStamp - buttonPressedAt < CLICK_MS;
+        const notRightAfterWriting = buttonPressedAt - lastContactEnd > 500;
+        if (short && !contactSincePress && notRightAfterWriting) checkForClick();
+      }
       buttonHeld = held;
-      eraser = eraserReady(e.timeStamp);
+      eraser = stickyEraser || eraserReady(e.timeStamp);
     } else {
       eraser = false;
     }
@@ -234,9 +279,44 @@ export function setupInput(canvas, app) {
   }
 
   // ---------- Finger ----------
+  const eraserTouches = new Set(); // "Finger", die in Wahrheit der Stift im Radier-Modus sind
+
   function handleTouch(e) {
     const id = e.pointerId;
     const ended = e.type === 'pointerup' || e.type === 'pointercancel';
+
+    // Sicherheitsnetz: Manche Tablets melden den Stift mit gedrücktem Knopf als "touch".
+    // Setzt eine kleine Berührung genau dort auf, wo der Stift eben noch mit Knopf schwebte,
+    // behandeln wir sie als Radierer.
+    if (e.type === 'pointerdown') {
+      const [x, y] = screenPos(e);
+      const nearPen = Math.hypot(x - lastPenPos[0], y - lastPenPos[1]) < 60;
+      const small = Math.max(e.width || 0, e.height || 0) <= PALM_SIZE;
+      const penJustHovered = e.timeStamp - lastPenTime < 300;
+      if (nearPen && small && penJustHovered && (stickyEraser || eraserReady(e.timeStamp))) {
+        capture(id);
+        eraserTouches.add(id);
+        contactSincePress = true;
+        contactSinceRelease = true;
+        app.startErase(pagePoint(e));
+        app.showEraser(screenPos(e));
+        return 'Radieren (Stift als touch gemeldet)';
+      }
+    }
+    if (eraserTouches.has(id)) {
+      if (ended) {
+        lastContactEnd = e.timeStamp;
+        eraserTouches.delete(id);
+        app.endErase();
+        app.showEraser(null);
+        return 'Schweben';
+      }
+      let events = e.getCoalescedEvents ? e.getCoalescedEvents() : [];
+      if (events.length === 0) events = [e];
+      app.eraseAlong(events.map(pagePoint));
+      app.showEraser(screenPos(e));
+      return 'Radieren (Stift als touch gemeldet)';
+    }
 
     if (e.type === 'pointerdown') {
       const penNearby = penMode !== 'none' || e.timeStamp - lastPenTime < PEN_GRACE_MS;
@@ -315,6 +395,7 @@ export function setupInput(canvas, app) {
   );
 
   return {
+    setStickyEraser,
     // nach einer Größenänderung neu messen, wo das Canvas liegt
     updateRect() {
       rect = canvas.getBoundingClientRect();
