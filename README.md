@@ -7,6 +7,8 @@ Was schon geht:
 
 - Nur der **S Pen** zeichnet, die Linie wird dicker, wenn du fester drückst
 - **Stiftknopf gedrückt halten = Radierer** (löscht ganze Striche, ein blauer Kreis zeigt den Radierer)
+- **Gerade Linien:** Strich ziehen und den Stift am Ende kurz stillhalten (etwa eine halbe Sekunde).
+  Dann wird daraus eine gerade Strecke vom Anfang bis zum Ende. Solange die Spitze unten bleibt, kannst du das Ende noch verschieben.
 - **1 Finger** verschiebt die Seite, **2 Finger** zoomen
 - **Handballen** werden ignoriert, solange der Stift in der Nähe ist
 - **Stift-Diagnose** (Knopf mit der Zickzack-Linie oben rechts): zeigt, was der Stift an die App meldet
@@ -55,6 +57,7 @@ npm run preview    # zeigt die fertige Version an (mit Service Worker)
 | `src/main.js` | Der Startpunkt. Steckt alles zusammen und enthält die Aktionen der App: Strich anfangen, verlängern, beenden, radieren, zoomen |
 | `src/input.js` | **Das Herz für den S Pen.** Unterscheidet Stift, Finger und Handballen und erkennt den Stiftknopf |
 | `src/ink.js` | Macht aus Stiftpunkten mit perfect-freehand eine glatte Linie. Prüft, ob der Radierer einen Strich trifft |
+| `src/straighten.js` | Gerade Linien: erkennt mit einem Timer, ob der Stift stillsteht, und macht aus dem Strich eine Strecke |
 | `src/view.js` | Die „Kamera": rechnet zwischen Bildschirm und Blatt um (Zoom und Verschieben) |
 | `src/renderer.js` | Malt alles aufs Canvas, und zwar so, dass möglichst wenig neu gemalt werden muss |
 | `src/debug.js` | Das Diagnose-Fenster |

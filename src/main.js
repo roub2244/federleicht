@@ -5,6 +5,7 @@ import { Renderer } from './renderer.js';
 import { createStroke, buildPath, strokeHit } from './ink.js';
 import { setupInput } from './input.js';
 import { Debug } from './debug.js';
+import { HoldDetector, linePoints, averagePressure, longEnough } from './straighten.js';
 
 // ---------- Einstellungen ----------
 const PEN = { color: '#1f2a44', size: 3.2 }; // dunkelblaue "Tinte"
@@ -23,6 +24,9 @@ const debug = new Debug(document.getElementById('debug'), renderer);
 let current = null;    // der Strich, der gerade geschrieben wird
 let lastErase = null;  // letzte Radierer-Position
 
+// Stift steht am Ende eines Strichs still -> Strich wird zur geraden Linie
+const hold = new HoldDetector(straightenCurrentStroke);
+
 // ---------- Was die App tun kann ----------
 // input.js ruft diese Funktionen auf, je nachdem was Stift und Finger machen.
 const app = {
@@ -32,16 +36,28 @@ const app = {
   startStroke(point, pointerType) {
     current = createStroke({ ...PEN, simulatePressure: pointerType !== 'pen' });
     current.points.push(point);
+    hold.moved(point, view.scale);
     drawCurrentStroke([]);
   },
 
   extendStroke(points, predicted) {
-    if (!current) return;
+    if (!current || points.length === 0) return;
+    const last = points[points.length - 1];
+
+    // Schon begradigt? Dann folgt nur noch das Ende der Linie dem Stift.
+    if (current.straight) {
+      current.points = linePoints(current.points[0], last, current.linePressure);
+      drawCurrentStroke([]);
+      return;
+    }
+
     current.points.push(...points);
+    hold.moved(last, view.scale);
     drawCurrentStroke(predicted);
   },
 
   endStroke() {
+    hold.stop();
     if (!current) return;
     const { path, box } = buildPath(current, [], true);
     current.path = path;
@@ -127,6 +143,20 @@ function drawCurrentStroke(predicted) {
       ctx.fill(path);
     },
   });
+}
+
+// Wird vom HoldDetector aufgerufen, wenn der Stift lange genug stillstand
+function straightenCurrentStroke() {
+  if (!current || current.straight) return;
+  const start = current.points[0];
+  const end = current.points[current.points.length - 1];
+  if (!longEnough(start, end, view.scale)) return;
+
+  current.straight = true;
+  current.linePressure = averagePressure(current.points);
+  current.points = linePoints(start, end, current.linePressure);
+  drawCurrentStroke([]);
+  navigator.vibrate?.(12); // kurzes Ruckeln als Rückmeldung (falls das Gerät es kann)
 }
 
 // Alle Striche löschen, die der Radierer an Stelle (x, y) berührt
