@@ -2,28 +2,40 @@
 import './style.css';
 import { View } from './view.js';
 import { Renderer } from './renderer.js';
-import { createStroke, buildPath, strokeHit } from './ink.js';
+import { createStroke, buildPath, finishStroke, fillStroke, strokeHit, cutStroke } from './ink.js';
 import { setupInput } from './input.js';
 import { Debug } from './debug.js';
 import { HoldDetector, linePoints, averagePressure, longEnough } from './straighten.js';
+import { History } from './history.js';
+import { loadTools } from './tools.js';
+import { setupToolbar } from './toolbar.js';
 
 // ---------- Einstellungen ----------
-const PEN = { color: '#1f2a44', size: 3.2 }; // dunkelblaue "Tinte"
-const ERASER_RADIUS = 12;                    // Radierer-Größe in Bildschirm-Pixeln
+// Farbe, Dicke, Stiftart usw. kommen aus der Werkzeugleiste (siehe tools.js)
+const tools = loadTools();
 
 // ---------- Die Bausteine ----------
 const stage = document.getElementById('stage');
 const canvas = document.getElementById('canvas');
 const zoomButton = document.getElementById('btn-zoom');
-const modePill = document.getElementById('mode-pill');
+const undoButton = document.getElementById('btn-undo');
+const redoButton = document.getElementById('btn-redo');
 
-const strokes = [];                       // alle fertigen Striche dieser Seite
+const strokes = [];                       // alle fertigen Striche dieser Seite, sortiert nach z
 const view = new View();                  // Zoom und Verschiebung
 const renderer = new Renderer(canvas, view, strokes);
 const debug = new Debug(document.getElementById('debug'), renderer);
 
-let current = null;    // der Strich, der gerade geschrieben wird
-let lastErase = null;  // letzte Radierer-Position
+let current = null;      // der Strich, der gerade geschrieben wird
+let lastErase = null;    // letzte Radierer-Position
+let erasing = null;      // was beim aktuellen Radieren passiert ist: { added: [], removed: [] }
+let nextZ = 1;           // z-Nummer für den nächsten neuen Strich (höher = weiter oben)
+
+// Rückgängig/Wiederholen: bei jeder Änderung die Knöpfe an- oder ausgrauen
+const history = new History(() => {
+  undoButton.disabled = !history.canUndo;
+  redoButton.disabled = !history.canRedo;
+});
 
 // Stift steht am Ende eines Strichs still -> Strich wird zur geraden Linie
 const hold = new HoldDetector(straightenCurrentStroke);
@@ -35,7 +47,17 @@ const app = {
   debug,
 
   startStroke(point, pointerType) {
-    current = createStroke({ ...PEN, simulatePressure: pointerType !== 'pen' });
+    // Radierer gewählt, aber trotzdem gezeichnet (z. B. Maus)? Dann mit dem Stift.
+    const tool = tools.tool === 'highlighter' ? 'highlighter' : 'pen';
+    const settings = tools[tool];
+    current = createStroke({
+      tool,
+      penType: tool === 'highlighter' ? 'highlighter' : settings.type,
+      color: settings.color,
+      size: settings.size,
+      simulatePressure: pointerType !== 'pen',
+      z: nextZ++,
+    });
     current.points.push(point);
     hold.moved(point, view.scale);
     drawCurrentStroke([]);
@@ -60,12 +82,11 @@ const app = {
   endStroke() {
     hold.stop();
     if (!current) return;
-    const { path, box } = buildPath(current, [], true);
-    current.path = path;
-    current.box = box;
-    if (box) {
-      strokes.push(current);
+    finishStroke(current);
+    if (current.box) {
+      strokes.push(current); // hat das höchste z, gehört also ans Ende
       renderer.commitStroke(current);
+      history.push({ added: [current], removed: [] });
     } else {
       renderer.setOverlay(null);
     }
@@ -73,6 +94,7 @@ const app = {
   },
 
   startErase(point) {
+    erasing = { added: [], removed: [] };
     lastErase = point;
     eraseAt(point[0], point[1]);
   },
@@ -80,7 +102,7 @@ const app = {
   // Zwischen zwei Radierer-Positionen auch die Punkte dazwischen prüfen,
   // sonst "springt" der Radierer bei schnellen Bewegungen über Striche hinweg.
   eraseAlong(points) {
-    const step = ERASER_RADIUS / view.scale / 2;
+    const step = tools.eraser.size / view.scale / 2;
     for (const p of points) {
       const from = lastErase || p;
       const distance = Math.hypot(p[0] - from[0], p[1] - from[1]);
@@ -95,13 +117,15 @@ const app = {
 
   endErase() {
     lastErase = null;
+    if (erasing) history.push(erasing); // das ganze Radieren ist EIN Schritt zum Rückgängigmachen
+    erasing = null;
   },
 
   // Radierer-Kreis an Bildschirm-Position [x, y] zeigen (null = ausblenden)
   showEraser(pos) {
     if (!pos) return renderer.setOverlay(null);
     const [x, y] = pos;
-    const r = ERASER_RADIUS;
+    const r = tools.eraser.size;
     renderer.setOverlay({
       box: { minX: x - r - 2, minY: y - r - 2, maxX: x + r + 2, maxY: y + r + 2 },
       draw(ctx, rend) {
@@ -117,9 +141,14 @@ const app = {
     });
   },
 
-  // Radierer-Modus (per Knopf-Klick) oben anzeigen
+  // Knopf-Klick beim Schweben schaltet den Radierer an/aus -> Werkzeugleiste anpassen
   setEraserMode(on) {
-    modePill.hidden = !on;
+    if (on && tools.tool !== 'eraser') {
+      toolBeforeEraser = tools.tool;
+      toolbar.setTool('eraser');
+    } else if (!on && tools.tool === 'eraser') {
+      toolbar.setTool(toolBeforeEraser);
+    }
   },
 
   panBy(dx, dy) {
@@ -139,14 +168,13 @@ function drawCurrentStroke(predicted) {
   if (!box) return;
   const [x0, y0] = view.toScreen(box.minX, box.minY);
   const [x1, y1] = view.toScreen(box.maxX, box.maxY);
-  const color = current.color;
+  const stroke = current;
   renderer.setOverlay({
     box: { minX: x0, minY: y0, maxX: x1, maxY: y1 },
     draw(ctx, rend) {
       rend.applyView(ctx);
       rend.clipToPage(ctx);
-      ctx.fillStyle = color;
-      ctx.fill(path);
+      fillStroke(ctx, stroke, path);
     },
   });
 }
@@ -165,21 +193,86 @@ function straightenCurrentStroke() {
   navigator.vibrate?.(12); // kurzes Ruckeln als Rückmeldung (falls das Gerät es kann)
 }
 
-// Alle Striche löschen, die der Radierer an Stelle (x, y) berührt
+// Radieren an Stelle (x, y):
+//   Modus "Strich löschen":  jeder berührte Strich verschwindet ganz
+//   Modus "Bereich löschen": nur das Stück unter dem Radierer verschwindet (cutStroke)
 function eraseAt(x, y) {
-  const r = ERASER_RADIUS / view.scale; // Bildschirm-Pixel -> Seiten-Einheiten
-  let area = null; // Bereich, in dem etwas gelöscht wurde
+  const r = tools.eraser.size / view.scale; // Bildschirm-Pixel -> Seiten-Einheiten
+  let area = null; // Bereich, in dem sich etwas geändert hat
   for (let i = strokes.length - 1; i >= 0; i--) {
-    if (strokeHit(strokes[i], x, y, r)) {
-      const b = strokes[i].box;
-      area = area
-        ? { minX: Math.min(area.minX, b.minX), minY: Math.min(area.minY, b.minY), maxX: Math.max(area.maxX, b.maxX), maxY: Math.max(area.maxY, b.maxY) }
-        : { ...b };
-      strokes.splice(i, 1);
+    const stroke = strokes[i];
+    if (!strokeHit(stroke, x, y, r)) continue;
+
+    let pieces = [];
+    if (tools.eraser.mode === 'area') {
+      pieces = cutStroke(stroke, x, y, r);
+      if (!pieces) continue; // doch nicht getroffen
     }
+    area = unionBox(area, stroke.box);
+    strokes.splice(i, 1, ...pieces); // Strich durch seine Reststücke ersetzen (gleiche Stelle = gleiches z)
+    noteErased(stroke, pieces);
   }
   // Sofort nur diesen Bereich neu malen (nicht erst beim nächsten Bild alles)
   if (area) renderer.redrawArea(area);
+}
+
+// Fürs Rückgängigmachen mitschreiben, was beim Radieren passiert
+function noteErased(stroke, pieces) {
+  if (!erasing) erasing = { added: [], removed: [] };
+  const index = erasing.added.indexOf(stroke);
+  if (index >= 0) {
+    // Ein Reststück, das erst in diesem Radiervorgang entstanden ist: einfach wieder vergessen
+    erasing.added.splice(index, 1);
+  } else {
+    erasing.removed.push(stroke);
+  }
+  erasing.added.push(...pieces);
+}
+
+// ---------- Rückgängig / Wiederholen ----------
+function removeStrokes(list) {
+  for (const stroke of list) {
+    const index = strokes.indexOf(stroke);
+    if (index >= 0) strokes.splice(index, 1);
+  }
+}
+
+// Striche wieder einfügen – an der richtigen Stelle, damit die Reihenfolge (z) stimmt.
+// Wichtig z. B. beim Textmarker: Er soll wieder unter bzw. über denselben Strichen liegen.
+function insertStrokes(list) {
+  for (const stroke of list) {
+    let index = strokes.length;
+    while (index > 0 && strokes[index - 1].z > stroke.z) index--;
+    strokes.splice(index, 0, stroke);
+  }
+}
+
+function undo() {
+  if (current || erasing) return; // nicht mitten im Schreiben
+  const action = history.undo();
+  if (!action) return;
+  removeStrokes(action.added);
+  insertStrokes(action.removed);
+  renderer.requestRender();
+}
+
+function redo() {
+  if (current || erasing) return;
+  const action = history.redo();
+  if (!action) return;
+  removeStrokes(action.removed);
+  insertStrokes(action.added);
+  renderer.requestRender();
+}
+
+function unionBox(a, b) {
+  if (!a) return { ...b };
+  return {
+    minX: Math.min(a.minX, b.minX),
+    minY: Math.min(a.minY, b.minY),
+    maxX: Math.max(a.maxX, b.maxX),
+    maxY: Math.max(a.maxY, b.maxY),
+  };
 }
 
 function afterViewChange() {
@@ -188,7 +281,38 @@ function afterViewChange() {
 }
 
 const input = setupInput(canvas, app);
-modePill.addEventListener('click', () => input.setStickyEraser(false));
+
+// ---------- Werkzeugleiste ----------
+let toolBeforeEraser = tools.tool === 'highlighter' ? 'highlighter' : 'pen';
+const toolbar = setupToolbar({
+  tools,
+  // Radierer in der Leiste gewählt = Stift radiert ab jetzt auch ohne Knopf
+  onToolChange(tool) {
+    if (tool !== 'eraser') toolBeforeEraser = tool;
+    input.setStickyEraser(tool === 'eraser');
+  },
+  onSettingsChange() {},
+  onClear() {
+    if (strokes.length === 0) return;
+    history.push({ added: [], removed: [...strokes] }); // auch "Seite leeren" kann man rückgängig machen
+    strokes.length = 0;
+    renderer.requestRender();
+  },
+});
+input.setStickyEraser(tools.tool === 'eraser');
+
+undoButton.addEventListener('click', undo);
+redoButton.addEventListener('click', redo);
+
+// Am PC: Strg+Z = Rückgängig, Strg+Y oder Strg+Umschalt+Z = Wiederholen
+window.addEventListener('keydown', (e) => {
+  if (!(e.ctrlKey || e.metaKey)) return;
+  const key = e.key.toLowerCase();
+  if (key === 'z' && !e.shiftKey) undo();
+  else if (key === 'y' || (key === 'z' && e.shiftKey)) redo();
+  else return;
+  e.preventDefault();
+});
 
 // ---------- Größe der Zeichenfläche ----------
 // ResizeObserver meldet sich, wenn sich die Größe ändert (z. B. Tablet drehen)
@@ -209,26 +333,6 @@ matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
 zoomButton.addEventListener('click', () => {
   view.fitToWidth();
   afterViewChange();
-});
-
-// "Seite leeren" braucht zwei Tipps, damit nichts aus Versehen weg ist
-const clearButton = document.getElementById('btn-clear');
-let clearArmed = false;
-clearButton.addEventListener('click', () => {
-  if (!clearArmed) {
-    clearArmed = true;
-    clearButton.classList.add('active');
-    clearButton.title = 'Nochmal tippen zum Leeren';
-    setTimeout(() => {
-      clearArmed = false;
-      clearButton.classList.remove('active');
-    }, 2500);
-    return;
-  }
-  strokes.length = 0;
-  clearArmed = false;
-  clearButton.classList.remove('active');
-  renderer.requestRender();
 });
 
 // Diagnose ein/aus (die Einstellung wird gemerkt)

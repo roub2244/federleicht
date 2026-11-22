@@ -51,36 +51,55 @@ body {
 }
 
 /* ---------- Obere Leiste ---------- */
+/* Drei Spalten: links und rechts gleich breit (1fr), die Werkzeuge genau in der Mitte */
 .topbar {
-  display: flex;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
   align-items: center;
-  justify-content: space-between;
   gap: 12px;
-  height: 56px;
-  padding: 0 16px;
-  padding-top: env(safe-area-inset-top);
+  height: calc(60px + env(safe-area-inset-top));
+  padding: env(safe-area-inset-top) 12px 0;
   background: var(--bar);
   border-bottom: 1px solid var(--line);
   flex-shrink: 0;
 }
 
-.brand {
+.bar-left {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 4px;
+  min-width: 0;
+}
+
+.logo {
+  margin: 0 6px 0 4px;
+}
+
+.brand-name {
   font-weight: 650;
   font-size: 18px;
   letter-spacing: -0.01em;
+  margin-right: 10px;
+  white-space: nowrap;
+}
+
+/* Auf schmalen Bildschirmen (Tablet hochkant) den Namen weglassen */
+@media (max-width: 760px) {
+  .brand-name {
+    display: none;
+  }
 }
 
 .actions {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 6px;
 }
 
 .btn,
-.icon-btn {
+.icon-btn,
+.tool-btn {
   border: none;
   background: transparent;
   color: var(--text);
@@ -88,7 +107,7 @@ body {
   font-size: 14px;
   border-radius: 999px;
   cursor: pointer;
-  transition: background 0.15s;
+  transition: background 0.15s, color 0.15s;
 }
 
 .btn {
@@ -103,13 +122,14 @@ body {
 }
 
 .icon-btn {
-  width: 40px;
-  height: 40px;
+  width: 42px;
+  height: 42px;
   display: grid;
   place-items: center;
 }
 
-.icon-btn svg {
+.icon-btn svg,
+.tool-btn svg {
   width: 22px;
   height: 22px;
   fill: none;
@@ -119,8 +139,14 @@ body {
   stroke-linejoin: round;
 }
 
+.icon-btn:disabled {
+  opacity: 0.32;
+  cursor: default;
+}
+
 .btn:hover,
-.icon-btn:hover {
+.icon-btn:not(:disabled):hover,
+.tool-btn:hover {
   background: var(--accent-soft);
 }
 
@@ -129,16 +155,258 @@ body {
   color: var(--accent);
 }
 
-.pill {
-  margin-left: 8px;
-  border: none;
+/* ---------- Werkzeuge in der Mitte ---------- */
+.tools {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
   border-radius: 999px;
-  padding: 5px 12px;
+  background: var(--bg);
+}
+
+.tool-btn {
+  position: relative;
+  width: 52px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+}
+
+.tool-btn svg {
+  width: 25px;
+  height: 25px;
+  margin-top: -4px;
+}
+
+/* Die Spitze im Symbol hat die Farbe des Stifts */
+.tool-btn .tip {
+  fill: var(--swatch, currentColor);
+  stroke: var(--swatch, currentColor);
+}
+
+/* Farbpunkt unter dem Symbol */
+.tool-btn .swatch {
+  position: absolute;
+  bottom: 5px;
+  left: 50%;
+  width: 14px;
+  height: 4px;
+  margin-left: -7px;
+  border-radius: 2px;
+  background: var(--swatch, currentColor);
+}
+
+.tool-btn.active {
+  background: var(--bar);
+  color: var(--accent);
+  box-shadow: 0 1px 4px rgba(20, 30, 60, 0.14);
+}
+
+/* ---------- Popup mit Einstellungen ---------- */
+.popup {
+  position: fixed;
+  z-index: 10;
+  width: 320px;
+  max-width: calc(100vw - 16px);
+  padding: 14px 16px 16px;
+  border-radius: 20px;
+  background: var(--bar);
+  border: 1px solid var(--line);
+  box-shadow: 0 12px 40px rgba(20, 30, 60, 0.2);
+  animation: pop 0.14s ease-out;
+}
+
+@keyframes pop {
+  from {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.98);
+  }
+}
+
+.popup-title {
+  font-weight: 650;
+  font-size: 15px;
+  margin-bottom: 12px;
+}
+
+/* Stiftarten nebeneinander, jede mit einer kleinen Beispiel-Linie */
+.types {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.type-btn,
+.segmented button {
+  border: 1.5px solid var(--line);
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  border-radius: 14px;
+  padding: 6px 4px 7px;
+  cursor: pointer;
+}
+
+.type-btn canvas {
+  display: block;
+  width: 100%;
+  height: 30px;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.type-btn span {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+}
+
+.type-btn.selected,
+.segmented button.selected {
+  border-color: var(--accent);
   background: var(--accent-soft);
   color: var(--accent);
-  font: inherit;
+}
+
+/* Dicke: Beschriftung, Schieberegler, Zahl */
+.size-row {
+  display: grid;
+  grid-template-columns: auto 1fr 34px;
+  align-items: center;
+  gap: 10px;
   font-size: 13px;
+  color: var(--muted);
+}
+
+.size-row input {
+  width: 100%;
+  accent-color: var(--accent);
+}
+
+.size-row output {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+
+/* Vorschau der Linie – immer auf weißem "Papier", auch im Dunkelmodus */
+.preview {
+  display: block;
+  width: 100%;
+  height: 64px;
+  margin: 10px 0 14px;
+  border-radius: 12px;
+  background: #fff;
+  border: 1px solid var(--line);
+}
+
+.swatches {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 10px;
+  justify-items: center;
+}
+
+.swatch-btn {
+  position: relative;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: none;
+  padding: 0;
+  background: var(--c);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.12);
+  cursor: pointer;
+}
+
+/* Ausgewählte Farbe: Ring außen herum */
+.swatch-btn.selected {
+  box-shadow: 0 0 0 2px var(--bar), 0 0 0 4px var(--accent);
+}
+
+/* Eigene Farbe: Regenbogen-Ring mit der gewählten Farbe in der Mitte */
+.swatch-btn.custom {
+  background: conic-gradient(#f03e3e, #fab005, #40c057, #15aabf, #4c6ef5, #be4bdb, #f03e3e);
+}
+
+.swatch-btn.custom::after {
+  content: '';
+  position: absolute;
+  inset: 6px;
+  border-radius: 50%;
+  background: var(--c);
+  box-shadow: 0 0 0 2px var(--bar);
+}
+
+.swatch-btn.custom input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  width: 100%;
+  height: 100%;
+  cursor: pointer;
+}
+
+/* Radierer: zwei Modi nebeneinander */
+.segmented {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.segmented button {
+  padding: 9px 8px;
+  text-align: left;
+}
+
+.segmented b {
+  display: block;
+  font-size: 13.5px;
   font-weight: 600;
+}
+
+.segmented small {
+  display: block;
+  margin-top: 2px;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.eraser-preview {
+  height: 112px;
+  margin: 10px 0 12px;
+  display: grid;
+  place-items: center;
+  border-radius: 12px;
+  background: #fff;
+  border: 1px solid var(--line);
+}
+
+.eraser-preview i {
+  border-radius: 50%;
+  background: rgba(74, 108, 247, 0.12);
+  border: 1.5px solid #4a6cf7;
+}
+
+.danger-btn {
+  width: 100%;
+  padding: 10px;
+  border: none;
+  border-radius: 12px;
+  background: var(--bg);
+  color: #e03131;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.danger-btn.armed {
+  background: #e03131;
+  color: #fff;
 }
 
 /* ---------- Zeichenfläche ---------- */

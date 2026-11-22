@@ -1,14 +1,22 @@
-# Federleicht – Etappe 1
+# Federleicht – Etappe 2
 
 Deine eigene Notiz-App für das Galaxy Tab S10 FE mit S Pen.
 Etappe 1: **installierbare Offline-App + Zeichenfläche**, auf der du flüssig mit dem Stift schreibst.
+Etappe 2: **Werkzeugleiste** wie bei Samsung Notes: Stift, Textmarker, Radierer, Rückgängig und Wiederholen.
 
 Was schon geht:
 
 - Nur der **S Pen** zeichnet, die Linie wird dicker, wenn du fester drückst
 - **Stiftknopf gedrückt halten = Radierer** (löscht ganze Striche, ein blauer Kreis zeigt den Radierer).
   Wichtig: Den Knopf **vor** dem Aufsetzen drücken. Der blaue Kreis erscheint schon beim Schweben, dann weißt du, dass der Radierer bereit ist.
-- **Knopf kurz klicken (beim Schweben) = Radierer bleibt an**, bis du wieder klickst. Oben erscheint dann „Radierer an“.
+- **Knopf kurz klicken (beim Schweben) = Radierer bleibt an**, bis du wieder klickst. In der Werkzeugleiste ist dann der Radierer gewählt.
+- **Werkzeugleiste oben:** Stift, Textmarker, Radierer. **Aktives Werkzeug nochmal antippen** öffnet die Einstellungen:
+  - Stift: Art (Füller, Kugelschreiber, Pinsel), Dicke, 10 Farben + eigene Farbe
+  - Textmarker: Dicke, 6 Farben + eigene Farbe. Er färbt wie echter Marker: Schrift darunter bleibt lesbar.
+  - Radierer: **Strich löschen** (ganzer Strich) oder **Bereich löschen** (nur wo du radierst), Größe, „Seite leeren“.
+    Der Stiftknopf benutzt dieselben Radierer-Einstellungen.
+  - Daneben tippen schließt das Popup, ohne zu zeichnen. Deine Einstellungen werden gemerkt.
+- **Rückgängig / Wiederholen** (Pfeile oben links, am PC auch Strg+Z / Strg+Y). Auch „Seite leeren“ kann man rückgängig machen.
 - **Gerade Linien:** Strich ziehen und den Stift am Ende kurz stillhalten (etwa eine halbe Sekunde).
   Dann wird daraus eine gerade Strecke vom Anfang bis zum Ende. Solange die Spitze unten bleibt, kannst du das Ende noch verschieben.
 - **1 Finger** verschiebt die Seite, **2 Finger** zoomen
@@ -57,8 +65,11 @@ npm run preview    # zeigt die fertige Version an (mit Service Worker)
 | `index.html` | Das Gerüst: obere Leiste, Canvas (die Zeichenfläche), Platz für die Diagnose |
 | `src/style.css` | Das Aussehen: Farben als Variablen, Hell- und Dunkelmodus, runde Ecken |
 | `src/main.js` | Der Startpunkt. Steckt alles zusammen und enthält die Aktionen der App: Strich anfangen, verlängern, beenden, radieren, zoomen |
+| `src/tools.js` | Die Werkzeuge: Farben, Stiftarten, Standard-Einstellungen, Speichern im Browser |
+| `src/toolbar.js` | Die Werkzeugleiste und die Einstellungs-Popups |
+| `src/history.js` | Rückgängig und Wiederholen mit zwei Stapeln |
 | `src/input.js` | **Das Herz für den S Pen.** Unterscheidet Stift, Finger und Handballen und erkennt den Stiftknopf |
-| `src/ink.js` | Macht aus Stiftpunkten mit perfect-freehand eine glatte Linie. Prüft, ob der Radierer einen Strich trifft |
+| `src/ink.js` | Macht aus Stiftpunkten mit perfect-freehand eine glatte Linie (je Stiftart andere Einstellungen). Prüft, ob der Radierer trifft, und schneidet beim Bereichs-Radierer Löcher in Striche |
 | `src/straighten.js` | Gerade Linien: erkennt mit einem Timer, ob der Stift stillsteht, und macht aus dem Strich eine Strecke |
 | `src/view.js` | Die „Kamera": rechnet zwischen Bildschirm und Blatt um (Zoom und Verschieben) |
 | `src/renderer.js` | Malt alles aufs Canvas, und zwar so, dass möglichst wenig neu gemalt werden muss |
@@ -113,9 +124,31 @@ Striche werden in diesen Einheiten gespeichert. `view.js` rechnet um: `bildschir
 **6. Service Worker.** Beim ersten Öffnen legt er alle Dateien in einen Cache. Danach beantwortet er jede Anfrage
 aus diesem Cache, also auch ohne Internet. Nach einem Update öffnest du die App zweimal, dann ist die neue Version da.
 
+**7. Rückgängig mit zwei Stapeln (Etappe 2).** Jede Änderung ist eine „Aktion“: `{ added: [...], removed: [...] }`.
+Rückgängig nimmt die oberste Aktion vom `undoStack`, macht sie umgekehrt und legt sie auf den `redoStack`.
+Jeder Strich hat eine Nummer `z`. Daran erkennen wir beim Wiedereinfügen, an welche Stelle er gehört (wichtig für den Textmarker).
+
+**8. Bereichs-Radierer (Etappe 2).** Ein Strich ist eine Liste von Punkten. `cutStroke()` wirft alle Punkte weg, die im
+Radierer-Kreis liegen. Was davor und dahinter übrig bleibt, wird zu neuen, kleineren Strichen.
+
 ---
 
-## 🧠 Übung: Aus dem Gedächtnis neu schreiben
+## 🧠 Übung Etappe 2: Rückgängig aus dem Gedächtnis
+
+1. Lies `src/history.js` genau durch.
+2. **Lösch den Inhalt der beiden Methoden `undo()` und `redo()`** (nur das zwischen den geschweiften Klammern).
+3. Schreib ihn aus dem Gedächtnis neu, ohne nachzuschauen.
+4. Teste: Drei Striche zeichnen, zweimal Rückgängig (nur der erste bleibt), einmal Wiederholen (zwei sind da).
+   Dann einen neuen Strich zeichnen: Der Wiederholen-Pfeil muss grau werden.
+5. Schick mir deinen Code in den Chat, ich prüfe ihn.
+
+Kleine Hilfe: `pop()`, `push()`, `this.onChange()` und `return`.
+
+**Bonusfragen:** Warum wird der `redoStack` in `push()` geleert? Warum ist ein ganzes Radieren (Aufsetzen bis Abheben) nur EIN Schritt?
+
+---
+
+## 🧠 Übung Etappe 1: Aus dem Gedächtnis neu schreiben
 
 1. Lies `src/input.js` von oben bis zu `setupInput` genau durch, vor allem die Bitmaske.
 2. **Lösch die beiden Funktionen `isEraserButton(e)` und `isButtonHeldWhileHovering(e)` komplett.**
