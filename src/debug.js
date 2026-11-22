@@ -70,7 +70,8 @@ export class Debug {
   }
 
   addLine(text) {
-    const time = new Date().toLocaleTimeString('de-DE');
+    const now = new Date();
+    const time = now.toLocaleTimeString('de-DE') + '.' + String(now.getMilliseconds()).padStart(3, '0');
     this.lines.push(`${time} ${text}`);
     if (this.lines.length > 150) this.lines.shift();
   }

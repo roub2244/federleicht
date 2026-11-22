@@ -17,6 +17,9 @@
 const PEN_GRACE_MS = 600;
 // Berührungen, die größer sind als das (in Pixeln), sind vermutlich der Handballen
 const PALM_SIZE = 45;
+// Kurz bevor die Spitze aufsetzt, meldet das Tablet "Knopf los" (buttons = 0).
+// Deshalb zählt ein Knopf, der vor weniger als ARM_MS losgelassen wurde, noch als gedrückt.
+const ARM_MS = 400;
 
 // ---------- Die zwei wichtigsten Funktionen für den S Pen ----------
 //
@@ -26,24 +29,32 @@ const PALM_SIZE = 45;
 //   32 = Radierer (z. B. Radier-Ende mancher Stifte)
 // Mit "&" prüfen wir, ob ein bestimmtes Bit gesetzt ist:
 //   buttons = 3  ->  3 & 2 = 2 (wahr: Knopf gedrückt)  3 & 1 = 1 (wahr: Spitze unten)
+//
+// THEORIE UND PRAXIS: Laut Standard sollte der Stiftknopf das Bit 2 setzen.
+// Robins Galaxy Tab S10 FE macht es anders (das hat die Diagnose gezeigt):
+//   - Während die Spitze das Display berührt, sieht man den Knopf GAR NICHT.
+//   - Beim SCHWEBEN mit gedrücktem Knopf kommt buttons = 1, aber Druck = 0.
+//     (buttons = 1 heißt eigentlich "Spitze unten" – der Druck 0 verrät aber,
+//      dass der Stift in Wahrheit schwebt.)
+//   - Direkt vor dem Aufsetzen kommt noch ein Schwebe-Event mit buttons = 0.
+// Deshalb merken wir uns beim Schweben, ob (und wann zuletzt) der Knopf gedrückt war,
+// und entscheiden beim Aufsetzen: zeichnen oder radieren.
 
-// Soll gerade radiert werden?
+// Meldet das Event ein Radierer-Signal nach Standard? (andere Stifte, Maus)
 export function isEraserButton(e) {
   if (e.buttons & 32) return true; // Radierer-Bit
-  if (e.buttons & 2) return true;  // Seitenknopf (so meldet es Chrome auf Android meistens)
+  if (e.buttons & 2) return true;  // Seitenknopf bzw. rechte Maustaste
   // Beim Aufsetzen verrät "button", WELCHE Taste das Event ausgelöst hat:
-  // 5 = Radierer, 2 = Seitenknopf
+  // 5 = Radierer, 2 = Seitenknopf / rechte Maustaste
   if (e.type === 'pointerdown' && (e.button === 5 || e.button === 2)) return true;
   return false;
 }
 
-// Berührt der Stift gerade das Display (oder schwebt er nur darüber)?
-export function isTouchingScreen(e) {
-  if (e.buttons & 1) return true;  // Spitze unten
-  if (e.buttons & 32) return true; // Radierer unten
-  // Manche Geräte melden "Knopf gedrückt + Spitze unten" nur als buttons = 2.
-  // Schwebt der Stift nur, ist der Druck 0 – daran erkennen wir den Unterschied.
-  if ((e.buttons & 2) && e.pressure > 0) return true;
+// Schwebt der Stift gerade mit gedrücktem Knopf? (nur für Schwebe-Events gedacht)
+export function isButtonHeldWhileHovering(e) {
+  if (isEraserButton(e)) return true;
+  // So meldet es Robins Samsung-Tablet: "Spitze unten", aber ohne Druck
+  if (e.pointerType === 'pen' && (e.buttons & 1) && e.pressure === 0) return true;
   return false;
 }
 
@@ -78,23 +89,50 @@ export function setupInput(canvas, app) {
   };
 
   // ---------- Stift (und Maus) ----------
+  const contacts = new Set();    // Stift-Pointer, die gerade das Display berühren
+  let buttonHeld = false;         // letzter bekannter Knopf-Zustand beim Schweben
+  let buttonReleasedAt = -Infinity;
+
+  // Knopf gerade gedrückt oder erst ganz kurz losgelassen?
+  const eraserReady = (time) => buttonHeld || time - buttonReleasedAt < ARM_MS;
+
   function handlePen(e) {
     lastPenTime = e.timeStamp;
+    const id = e.pointerId;
 
     // Der Stift hat Vorrang: Liegt schon ein "Finger" (= Handballen) auf, ignorieren wir ihn ab jetzt.
     if (e.pointerType === 'pen' && touches.size) {
-      for (const id of touches.keys()) ignored.add(id);
+      for (const fingerId of touches.keys()) ignored.add(fingerId);
       touches.clear();
     }
 
-    if (e.type === 'pointerdown') capture(e.pointerId);
-
+    // Berührt der Stift das Display? Das entscheiden wir NUR über pointerdown/pointerup,
+    // nicht über "buttons" – denn das Tablet meldet buttons = 1 auch beim Schweben.
+    if (e.type === 'pointerdown') {
+      capture(id);
+      contacts.add(id);
+    }
     const ended = e.type === 'pointerup' || e.type === 'pointercancel';
-    const eraser = isEraserButton(e);
-    const touching = !ended && isTouchingScreen(e);
+    const touching = contacts.has(id) && !ended;
+    if (ended) contacts.delete(id);
+
+    let eraser;
+    if (touching) {
+      // Beim Aufsetzen: War der Knopf beim Schweben gedrückt?
+      // Danach bleibt der Modus bis zum Abheben gleich (den Knopf sehen wir jetzt ja nicht mehr).
+      eraser = isEraserButton(e) || penMode === 'erase' || (e.type === 'pointerdown' && eraserReady(e.timeStamp));
+    } else if (contacts.size === 0 && !ended) {
+      // Schweben: Knopf-Zustand merken
+      const held = isButtonHeldWhileHovering(e);
+      if (buttonHeld && !held) buttonReleasedAt = e.timeStamp;
+      buttonHeld = held;
+      eraser = eraserReady(e.timeStamp);
+    } else {
+      eraser = false;
+    }
     const wanted = touching ? (eraser ? 'erase' : 'draw') : 'none';
 
-    // 0. Radierer-Kreis ausblenden, wenn der Knopf losgelassen wurde
+    // 0. Radierer-Kreis ausblenden, wenn er nicht mehr gebraucht wird
     if (eraserShown && (!eraser || ended)) {
       app.showEraser(null);
       eraserShown = false;
@@ -103,28 +141,36 @@ export function setupInput(canvas, app) {
     // 1. Neue Punkte zum laufenden Strich / Radiervorgang hinzufügen.
     //    getCoalescedEvents(): Der Stift misst öfter, als der Bildschirm Bilder zeigt.
     //    Hier bekommen wir ALLE Zwischenpunkte -> glattere Linien.
-    if (e.type === 'pointermove' || e.type === 'pointerup') {
-      let events = e.getCoalescedEvents ? e.getCoalescedEvents() : [];
-      if (events.length === 0) events = [e];
-      const points = events.map(pagePoint);
+    if (contacts.has(id) || ended) {
+      if (e.type === 'pointermove' || e.type === 'pointerup') {
+        let events = e.getCoalescedEvents ? e.getCoalescedEvents() : [];
+        if (events.length === 0) events = [e];
+        const points = events.map(pagePoint);
 
-      if (penMode === 'draw') {
-        // getPredictedEvents(): Der Browser schätzt, wo der Stift gleich sein wird.
-        // Diese Punkte zeigen wir nur kurz an, damit sich die Linie schneller anfühlt.
-        const predicted = wanted === 'draw' && e.getPredictedEvents ? e.getPredictedEvents().map(pagePoint) : [];
-        app.extendStroke(points, predicted);
-      } else if (penMode === 'erase' && wanted === 'erase') {
-        app.eraseAlong(points);
+        if (penMode === 'draw') {
+          // getPredictedEvents(): Der Browser schätzt, wo der Stift gleich sein wird.
+          // Diese Punkte zeigen wir nur kurz an, damit sich die Linie schneller anfühlt.
+          const predicted = wanted === 'draw' && e.getPredictedEvents ? e.getPredictedEvents().map(pagePoint) : [];
+          app.extendStroke(points, predicted);
+        } else if (penMode === 'erase' && wanted === 'erase') {
+          app.eraseAlong(points);
+        }
       }
     }
 
-    // 2. Hat sich der Modus geändert? (z. B. Knopf mitten im Strich gedrückt)
-    if (wanted !== penMode) {
+    // 2. Hat sich der Modus geändert? (aufgesetzt, abgehoben, Knopf gedrückt)
+    if (wanted !== penMode && (touching || ended || contacts.size === 0)) {
       if (penMode === 'draw') app.endStroke();
       if (penMode === 'erase') app.endErase();
       if (wanted === 'draw') app.startStroke(pagePoint(e), e.pointerType);
       if (wanted === 'erase') app.startErase(pagePoint(e));
       penMode = wanted;
+    }
+
+    // Nach dem Abheben neu anfangen: Der Knopf muss beim nächsten Schweben wieder gedrückt sein
+    if (ended) {
+      buttonHeld = false;
+      buttonReleasedAt = -Infinity;
     }
 
     // 3. Radierer-Kreis anzeigen – auch schon beim Schweben mit gedrücktem Knopf
@@ -135,7 +181,14 @@ export function setupInput(canvas, app) {
 
     if (penMode === 'draw') return 'Zeichnen';
     if (penMode === 'erase') return 'Radieren';
-    return eraser ? 'Schweben (Radierer)' : 'Schweben';
+    return eraser ? 'Schweben mit Knopf (Radierer bereit)' : 'Schweben';
+  }
+
+  // Auf dem Samsung-Tablet löst der Knopf beim Schweben auch ein "contextmenu" aus.
+  // Das nutzen wir als zusätzliches Signal (und verhindern das Menü).
+  function onContextMenu(e) {
+    e.preventDefault();
+    if (e.timeStamp - lastPenTime < 1000) buttonReleasedAt = e.timeStamp;
   }
 
   // ---------- Finger ----------
@@ -197,7 +250,7 @@ export function setupInput(canvas, app) {
   });
 
   // Kein Kontextmenü bei langem Drücken oder Stiftknopf
-  canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+  canvas.addEventListener('contextmenu', onContextMenu);
 
   // Am PC: Mausrad = scrollen, Strg + Mausrad = zoomen
   canvas.addEventListener(

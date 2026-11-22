@@ -6,7 +6,8 @@ Etappe 1: **installierbare Offline-App + Zeichenfläche**, auf der du flüssig m
 Was schon geht:
 
 - Nur der **S Pen** zeichnet, die Linie wird dicker, wenn du fester drückst
-- **Stiftknopf gedrückt halten = Radierer** (löscht ganze Striche, ein blauer Kreis zeigt den Radierer)
+- **Stiftknopf gedrückt halten = Radierer** (löscht ganze Striche, ein blauer Kreis zeigt den Radierer).
+  Wichtig: Den Knopf **vor** dem Aufsetzen drücken. Der blaue Kreis erscheint schon beim Schweben, dann weißt du, dass der Radierer bereit ist.
 - **Gerade Linien:** Strich ziehen und den Stift am Ende kurz stillhalten (etwa eine halbe Sekunde).
   Dann wird daraus eine gerade Strecke vom Anfang bis zum Ende. Solange die Spitze unten bleibt, kannst du das Ende noch verschieben.
 - **1 Finger** verschiebt die Seite, **2 Finger** zoomen
@@ -81,9 +82,20 @@ Bit  6  (Wert 32) = Radierer
 buttons = 3  bedeutet  1 + 2  =  Spitze unten UND Knopf gedrückt
 ```
 
-Mit `e.buttons & 2` fragen wir: „Ist das Knopf-Bit gesetzt?" Weil nicht jedes Gerät gleich meldet,
-prüft `isEraserButton()` alle Varianten (32, 2, und beim Aufsetzen `button === 5` oder `2`).
-Und `isTouchingScreen()` unterscheidet „Stift berührt" von „Stift schwebt nur" – sonst würdest du schon beim Schweben radieren.
+Mit `e.buttons & 2` fragen wir: „Ist das Knopf-Bit gesetzt?" So steht es im Standard, und so machen es z. B. die Maus
+(rechte Taste) und viele andere Stifte. Das prüft `isEraserButton()`.
+
+**Aber:** Die Diagnose auf deinem Tab S10 FE hat gezeigt, dass Samsung es anders macht:
+
+- Während die Spitze das Display berührt, sieht die App den Knopf **gar nicht**.
+- Beim **Schweben** mit gedrücktem Knopf kommt `buttons = 1` mit Druck `0`. Eigentlich heißt `buttons = 1` „Spitze unten",
+  der Druck 0 verrät aber, dass der Stift schwebt. Das erkennt `isButtonHeldWhileHovering()`.
+- Direkt vor dem Aufsetzen kommt noch ein Schwebe-Event mit `buttons = 0`. Darum zählt ein Knopf, der vor weniger als
+  0,4 Sekunden „losgelassen" wurde, noch als gedrückt (`ARM_MS`).
+
+Deshalb merkt sich `input.js` beim Schweben, ob der Knopf gedrückt ist, und entscheidet beim **Aufsetzen**: zeichnen oder radieren.
+Bis zum Abheben bleibt es dann dabei. Ob der Stift das Display berührt, erkennen wir nur noch an `pointerdown` und `pointerup`.
+Das ist eine wichtige Programmier-Lektion: **Erst messen, dann programmieren.** Die Theorie (der Standard) und die Praxis (dein Gerät) sind nicht immer gleich.
 
 **3. Handballen.** Wenn der Stift gerade schreibt oder vor weniger als 0,6 Sekunden in der Nähe war,
 ignorieren wir Fingerberührungen. Sehr große Berührungen (> 45 px) sind auch verdächtig.
@@ -105,17 +117,17 @@ aus diesem Cache, also auch ohne Internet. Nach einem Update öffnest du die App
 ## 🧠 Übung: Aus dem Gedächtnis neu schreiben
 
 1. Lies `src/input.js` von oben bis zu `setupInput` genau durch, vor allem die Bitmaske.
-2. **Lösch die beiden Funktionen `isEraserButton(e)` und `isTouchingScreen(e)` komplett.**
+2. **Lösch die beiden Funktionen `isEraserButton(e)` und `isButtonHeldWhileHovering(e)` komplett.**
 3. Schreib sie aus dem Gedächtnis neu, **ohne nachzuschauen**.
-4. Teste: Am PC muss die linke Maustaste zeichnen und die rechte radieren. Auf dem Tablet darf
-   „Knopf gedrückt halten und nur schweben" noch **nichts** löschen, erst wenn die Spitze das Display berührt.
+4. Teste: Am PC muss die linke Maustaste zeichnen und die rechte radieren. Auf dem Tablet muss beim Schweben mit
+   gedrücktem Knopf der blaue Kreis erscheinen, und Aufsetzen mit gedrücktem Knopf muss radieren.
 5. Schick mir deinen Code in den Chat. Ich prüfe ihn und stelle dir dazu Fragen.
 
-Kleine Hilfe, falls du hängst: Es geht um die Werte `1`, `2`, `32` und den Operator `&`.
+Kleine Hilfe, falls du hängst: Es geht um die Werte `1`, `2`, `32`, `5`, den Operator `&` und den Druck `e.pressure`.
 
 **Bonusfragen** (beantworte sie mir in eigenen Worten):
 
-- Warum prüft `isTouchingScreen` bei `buttons & 2` zusätzlich den Druck?
+- Warum prüft `isButtonHeldWhileHovering` bei `buttons & 1` zusätzlich, ob der Druck 0 ist?
 - Was würde passieren, wenn `touch-action: none` im CSS fehlt?
 - Warum speichern wir Striche in Seiten-Koordinaten und nicht in Bildschirm-Pixeln?
 
