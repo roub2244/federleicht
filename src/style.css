@@ -214,7 +214,7 @@ body {
 .debug .log {
   margin: 8px 0 0;
   padding: 6px 8px;
-  max-height: 120px;
+  max-height: 160px;
   overflow: auto;
   border-radius: 8px;
   background: var(--bg);
@@ -222,6 +222,19 @@ body {
   font-size: 11px;
   white-space: pre-wrap;
   word-break: break-all;
+}
+
+.debug .copy-box {
+  width: 100%;
+  height: 120px;
+  margin-top: 8px;
+  font: 11px ui-monospace, 'Roboto Mono', monospace;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+  -webkit-user-select: text;
+  user-select: text;
 }
 
 .debug button {

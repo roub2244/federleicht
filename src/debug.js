@@ -20,9 +20,11 @@ export class Debug {
     this.lastSignature = '';
     this.frame = 0;
     this.moveTimes = [];    // für "Stift-Events pro Sekunde"
+    // Zähler: Wie oft kam welches mögliche Knopf-Signal an?
+    this.seen = { buttons2: 0, buttons32: 0, button2: 0, button5: 0, mouse: 0, keys: 0, menu: 0 };
 
     this.el.innerHTML = `
-      <h3>Stift-Diagnose <button data-copy>Kopieren</button></h3>
+      <h3>Stift-Diagnose <span><button data-clear>Leeren</button> <button data-copy>Kopieren</button></span></h3>
       <dl>
         <dt>Gerät</dt><dd data-f="pointerType">–</dd>
         <dt>Ereignis</dt><dd data-f="type">–</dd>
@@ -35,12 +37,49 @@ export class Debug {
         <dt>Rate</dt><dd data-f="rate">–</dd>
         <dt>Modus</dt><dd class="mode" data-f="status">–</dd>
         <dt>Low-Latency</dt><dd>${renderer.lowLatency ? 'ja' : 'nein'}</dd>
+        <dt>Knopf-Signale</dt><dd data-f="seen">noch keine</dd>
       </dl>
-      <div class="log" data-f="log">Halte den Stift über das Blatt …</div>`;
+      <div class="log" data-f="log">Halte den Stift über das Blatt …</div>
+      <textarea class="copy-box" data-f="copyBox" readonly hidden></textarea>`;
 
     this.fields = {};
     for (const node of this.el.querySelectorAll('[data-f]')) this.fields[node.dataset.f] = node;
     this.el.querySelector('[data-copy]').addEventListener('click', () => this.copy());
+    this.el.querySelector('[data-clear]').addEventListener('click', () => this.clear());
+    this.watchOtherEvents();
+  }
+
+  // Manche Stifte melden ihren Knopf nicht als Pointer Event, sondern z. B. als
+  // Tastendruck oder Kontextmenü. Diese Events schreiben wir auch ins Protokoll.
+  watchOtherEvents() {
+    const types = ['keydown', 'keyup', 'contextmenu', 'auxclick', 'mousedown', 'mouseup'];
+    for (const type of types) {
+      window.addEventListener(type, (e) => this.recordOther(e), { capture: true });
+    }
+  }
+
+  recordOther(e) {
+    if (e.type.startsWith('key')) this.seen.keys++;
+    if (e.type === 'contextmenu') this.seen.menu++;
+    const details = e.type.startsWith('key')
+      ? `key="${e.key}" code="${e.code}" keyCode=${e.keyCode}`
+      : `button=${e.button} buttons=${e.buttons}`;
+    this.addLine(`${e.type} ${details}`);
+    if (!this.el.hidden) this.scheduleUpdate();
+  }
+
+  addLine(text) {
+    const time = new Date().toLocaleTimeString('de-DE');
+    this.lines.push(`${time} ${text}`);
+    if (this.lines.length > 150) this.lines.shift();
+  }
+
+  clear() {
+    this.lines = [];
+    for (const key in this.seen) this.seen[key] = 0;
+    this.fields.copyBox.hidden = true;
+    this.fields.log.textContent = 'Geleert. Jetzt testen …';
+    this.update();
   }
 
   setVisible(visible) {
@@ -67,21 +106,27 @@ export class Debug {
       status,
     };
 
+    if (e.buttons & 2) this.seen.buttons2++;
+    if (e.buttons & 32) this.seen.buttons32++;
+    if (e.button === 2) this.seen.button2++;
+    if (e.button === 5) this.seen.button5++;
+    if (e.pointerType === 'mouse') this.seen.mouse++;
+
     if (e.type === 'pointermove' && e.pointerType === 'pen') {
       this.moveTimes.push(e.timeStamp);
       if (this.moveTimes.length > 30) this.moveTimes.shift();
     }
 
     // Ins Protokoll nur, wenn sich etwas Wichtiges ändert (nicht jede Bewegung)
-    const signature = `${e.pointerType}|${e.buttons}|${status}`;
+    // (Druck wird grob gerundet: 0 = schwebt, sonst berührt)
+    const touching = e.pressure > 0 ? 'unten' : 'schwebt';
+    const signature = `${e.pointerType}|${e.button}|${e.buttons}|${touching}|${status}`;
     if (e.type !== 'pointermove' || signature !== this.lastSignature) {
       this.lastSignature = signature;
-      const time = new Date().toLocaleTimeString('de-DE');
       const name = e.type.replace('pointer', '');
-      this.lines.push(
-        `${time} ${e.pointerType} ${name} button=${e.button} buttons=${e.buttons} druck=${e.pressure.toFixed(2)} → ${status}`
+      this.addLine(
+        `${e.pointerType} ${name} id=${e.pointerId} button=${e.button} buttons=${e.buttons} druck=${e.pressure.toFixed(2)} → ${status}`
       );
-      if (this.lines.length > 40) this.lines.shift();
     }
 
     if (!this.el.hidden) this.scheduleUpdate();
@@ -110,6 +155,16 @@ export class Debug {
     f.size.textContent = `${d.width.toFixed(0)} × ${d.height.toFixed(0)} px`;
     f.points.textContent = `${d.coalesced} echt + ${d.predicted} vorhergesagt`;
     f.status.textContent = d.status;
+    const n = this.seen;
+    const parts = [];
+    if (n.buttons2) parts.push(`buttons&2: ${n.buttons2}`);
+    if (n.buttons32) parts.push(`buttons&32: ${n.buttons32}`);
+    if (n.button2) parts.push(`button=2: ${n.button2}`);
+    if (n.button5) parts.push(`button=5: ${n.button5}`);
+    if (n.mouse) parts.push(`Maus: ${n.mouse}`);
+    if (n.keys) parts.push(`Tasten: ${n.keys}`);
+    if (n.menu) parts.push(`Menü: ${n.menu}`);
+    f.seen.textContent = parts.length ? parts.join(', ') : 'noch keine';
 
     const t = this.moveTimes;
     if (t.length > 2) {
@@ -127,15 +182,22 @@ export class Debug {
       `Federleicht Stift-Diagnose`,
       `Browser: ${navigator.userAgent}`,
       `Low-Latency: ${this.renderer.lowLatency ? 'ja' : 'nein'}`,
+      `Knopf-Signale: ${JSON.stringify(this.seen)}`,
       ...this.lines,
     ].join('\n');
     const button = this.el.querySelector('[data-copy]');
     try {
       await navigator.clipboard.writeText(text);
       button.textContent = 'Kopiert ✓';
+      setTimeout(() => (button.textContent = 'Kopieren'), 2000);
     } catch {
-      button.textContent = 'Geht nicht';
+      // Kopieren nicht erlaubt -> Text in ein Feld schreiben, das man selbst markieren kann
+      const box = this.fields.copyBox;
+      box.value = text;
+      box.hidden = false;
+      box.focus();
+      box.select();
+      button.textContent = 'Text unten markieren';
     }
-    setTimeout(() => (button.textContent = 'Kopieren'), 2000);
   }
 }
