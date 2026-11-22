@@ -223,7 +223,7 @@ installButton.addEventListener('click', async () => {
 // ---------- Offline-Fähigkeit ----------
 // Den Service Worker nur in der fertigen Version anmelden (nicht beim Entwickeln)
 if ('serviceWorker' in navigator && import.meta.env.PROD) {
-  navigator.serviceWorker.register('./sw.js');
+  navigator.serviceWorker.register('./sw.js').catch((err) => console.warn('Kein Service Worker:', err));
 }
 
 // Kleine Helfer für gespeicherte Einstellungen (localStorage kann manchmal fehlen)
