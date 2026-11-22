@@ -162,14 +162,18 @@ function straightenCurrentStroke() {
 // Alle Striche löschen, die der Radierer an Stelle (x, y) berührt
 function eraseAt(x, y) {
   const r = ERASER_RADIUS / view.scale; // Bildschirm-Pixel -> Seiten-Einheiten
-  let removed = false;
+  let area = null; // Bereich, in dem etwas gelöscht wurde
   for (let i = strokes.length - 1; i >= 0; i--) {
     if (strokeHit(strokes[i], x, y, r)) {
+      const b = strokes[i].box;
+      area = area
+        ? { minX: Math.min(area.minX, b.minX), minY: Math.min(area.minY, b.minY), maxX: Math.max(area.maxX, b.maxX), maxY: Math.max(area.maxY, b.maxY) }
+        : { ...b };
       strokes.splice(i, 1);
-      removed = true;
     }
   }
-  if (removed) renderer.requestRender();
+  // Sofort nur diesen Bereich neu malen (nicht erst beim nächsten Bild alles)
+  if (area) renderer.redrawArea(area);
 }
 
 function afterViewChange() {

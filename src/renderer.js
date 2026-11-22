@@ -23,6 +23,11 @@ export class Renderer {
     this.cache = document.createElement('canvas');
     this.cacheCtx = this.cache.getContext('2d', { alpha: false });
 
+    // Noch ein Zwischenbild nur mit Hintergrund + leerem Blatt ("Papier").
+    // Daraus können wir beim Radieren schnell kleine Stücke wiederherstellen.
+    this.paper = document.createElement('canvas');
+    this.paperCtx = this.paper.getContext('2d', { alpha: false });
+
     this.dpr = 1;          // devicePixelRatio: echte Pixel pro CSS-Pixel
     this.overlay = null;   // was gerade "über" der Seite liegt (aktueller Strich, Radierer-Kreis)
     this.lastBox = null;   // wo das Overlay zuletzt war
@@ -43,7 +48,7 @@ export class Renderer {
   // wirklich hat – sonst sieht die Schrift unscharf aus.
   resize(width, height) {
     this.dpr = window.devicePixelRatio || 1;
-    for (const c of [this.canvas, this.cache]) {
+    for (const c of [this.canvas, this.cache, this.paper]) {
       c.width = Math.round(width * this.dpr);
       c.height = Math.round(height * this.dpr);
     }
@@ -72,16 +77,14 @@ export class Renderer {
     this.drawOverlay();
   }
 
-  // Das Zwischenbild komplett neu malen: Hintergrund, Blatt, alle Striche
-  renderScene() {
-    const c = this.cacheCtx;
+  // Das Papier malen: Hintergrund und weißes Blatt mit weichem Schatten.
+  // (Der Schatten ist aufwendig, darum nur nach Zoomen/Verschieben.)
+  renderPaper() {
+    const c = this.paperCtx;
     c.setTransform(1, 0, 0, 1, 0, 0);
     c.fillStyle = this.colors.bg;
-    c.fillRect(0, 0, this.cache.width, this.cache.height);
-
+    c.fillRect(0, 0, this.paper.width, this.paper.height);
     this.applyView(c);
-
-    // weißes Blatt mit weichem Schatten
     c.save();
     c.shadowColor = this.colors.shadow;
     c.shadowBlur = 20 * this.dpr;
@@ -89,12 +92,30 @@ export class Renderer {
     c.fillStyle = '#ffffff';
     c.fillRect(0, 0, PAGE_WIDTH, PAGE_HEIGHT);
     c.restore();
+  }
 
-    // Striche (nur innerhalb des Blatts und nur die sichtbaren)
+  // Das Zwischenbild komplett neu malen: Papier + alle sichtbaren Striche
+  renderScene() {
+    this.renderPaper();
+    const c = this.cacheCtx;
+    c.setTransform(1, 0, 0, 1, 0, 0);
+    c.drawImage(this.paper, 0, 0);
+    this.drawStrokes(c, null);
+  }
+
+  // Striche ins Zwischenbild malen – alle sichtbaren, oder nur die in einem Bereich (Seiten-Koordinaten)
+  drawStrokes(c, area) {
+    let [vx0, vy0] = this.view.toPage(0, 0);
+    let [vx1, vy1] = this.view.toPage(this.view.width, this.view.height);
+    if (area) {
+      vx0 = Math.max(vx0, area.minX);
+      vy0 = Math.max(vy0, area.minY);
+      vx1 = Math.min(vx1, area.maxX);
+      vy1 = Math.min(vy1, area.maxY);
+    }
     c.save();
+    this.applyView(c);
     this.clipToPage(c);
-    const [vx0, vy0] = this.view.toPage(0, 0);
-    const [vx1, vy1] = this.view.toPage(this.view.width, this.view.height);
     for (const s of this.strokes) {
       const b = s.box;
       if (!b || b.maxX < vx0 || b.minX > vx1 || b.maxY < vy0 || b.minY > vy1) continue;
@@ -102,6 +123,31 @@ export class Renderer {
       c.fill(s.path);
     }
     c.restore();
+  }
+
+  // Nur einen Bereich neu malen (z. B. dort, wo der Radierer gerade einen Strich gelöscht hat).
+  // Viel schneller als alles neu zu malen – darum folgt der Radierer flüssig dem Stift.
+  redrawArea(area) {
+    const [x0, y0] = this.view.toScreen(area.minX, area.minY);
+    const [x1, y1] = this.view.toScreen(area.maxX, area.maxY);
+    const box = this.toDeviceBox({ minX: x0, minY: y0, maxX: x1, maxY: y1 });
+    const w = box.maxX - box.minX;
+    const h = box.maxY - box.minY;
+    if (w <= 0 || h <= 0) return;
+
+    const c = this.cacheCtx;
+    c.save();
+    c.setTransform(1, 0, 0, 1, 0, 0);
+    c.beginPath();
+    c.rect(box.minX, box.minY, w, h);
+    c.clip();
+    c.drawImage(this.paper, box.minX, box.minY, w, h, box.minX, box.minY, w, h);
+    this.drawStrokes(c, area);
+    c.restore();
+
+    // Aufs sichtbare Canvas: Bereich + Overlay (Radierer-Kreis) neu
+    this.copyFromCache(unionBox(box, this.lastBox));
+    this.drawOverlay();
   }
 
   clipToPage(ctx) {

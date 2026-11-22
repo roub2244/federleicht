@@ -122,7 +122,7 @@ export class Debug {
     // Ins Protokoll nur, wenn sich etwas Wichtiges ändert (nicht jede Bewegung)
     // (Druck wird grob gerundet: 0 = schwebt, sonst berührt)
     const touching = e.pressure > 0 ? 'unten' : 'schwebt';
-    const signature = `${e.pointerType}|${e.button}|${e.buttons}|${touching}|${status}`;
+    const signature = `${e.pointerType}|${e.pointerId}|${e.button}|${e.buttons}|${touching}|${status}`;
     if (e.type !== 'pointermove' || signature !== this.lastSignature) {
       this.lastSignature = signature;
       const name = e.type.replace('pointer', '');

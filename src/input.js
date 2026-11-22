@@ -90,6 +90,7 @@ export function setupInput(canvas, app) {
 
   // ---------- Stift (und Maus) ----------
   const contacts = new Set();    // Stift-Pointer, die gerade das Display berühren
+  const silentContacts = new Set(); // ...davon die, die ohne pointerdown aufgesetzt haben
   let buttonHeld = false;         // letzter bekannter Knopf-Zustand beim Schweben
   let buttonReleasedAt = -Infinity;
 
@@ -106,21 +107,44 @@ export function setupInput(canvas, app) {
       touches.clear();
     }
 
-    // Berührt der Stift das Display? Das entscheiden wir NUR über pointerdown/pointerup,
+    // Liegt schon ein anderer Stift-Pointer auf dem Display, ignorieren wir alle anderen
+    // (z. B. Schwebe-Events, die das Tablet manchmal nebenher schickt).
+    if (contacts.size > 0 && !contacts.has(id) && e.type !== 'pointerdown') {
+      return 'ignoriert (anderer Stift-Pointer)';
+    }
+
+    // Berührt der Stift das Display? Das entscheiden wir über pointerdown/pointerup,
     // nicht über "buttons" – denn das Tablet meldet buttons = 1 auch beim Schweben.
-    if (e.type === 'pointerdown') {
+    let starting = e.type === 'pointerdown';
+    let ended = e.type === 'pointerup' || e.type === 'pointercancel';
+
+    // Sicherheitsnetz: Manche Geräte schicken beim Aufsetzen mit gedrücktem Knopf kein
+    // pointerdown, sondern nur Bewegungen mit Druck > 0. Das zählt dann auch als Aufsetzen.
+    if (e.type === 'pointermove' && e.pointerType === 'pen') {
+      const pressing = (e.buttons & 1) && e.pressure > 0;
+      if (!contacts.has(id) && pressing) {
+        starting = true;
+        silentContacts.add(id);
+      } else if (silentContacts.has(id) && !pressing) {
+        ended = true;
+      }
+    }
+
+    if (starting) {
       capture(id);
       contacts.add(id);
     }
-    const ended = e.type === 'pointerup' || e.type === 'pointercancel';
     const touching = contacts.has(id) && !ended;
-    if (ended) contacts.delete(id);
+    if (ended) {
+      contacts.delete(id);
+      silentContacts.delete(id);
+    }
 
     let eraser;
     if (touching) {
       // Beim Aufsetzen: War der Knopf beim Schweben gedrückt?
       // Danach bleibt der Modus bis zum Abheben gleich (den Knopf sehen wir jetzt ja nicht mehr).
-      eraser = isEraserButton(e) || penMode === 'erase' || (e.type === 'pointerdown' && eraserReady(e.timeStamp));
+      eraser = isEraserButton(e) || penMode === 'erase' || (starting && eraserReady(e.timeStamp));
     } else if (contacts.size === 0 && !ended) {
       // Schweben: Knopf-Zustand merken
       const held = isButtonHeldWhileHovering(e);
