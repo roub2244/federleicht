@@ -59,6 +59,7 @@ export class Debug {
   }
 
   recordOther(e) {
+    if (this.el.contains(e.target)) return; // Klicks im Diagnose-Fenster selbst ignorieren
     if (e.type.startsWith('key')) this.seen.keys++;
     if (e.type === 'contextmenu') this.seen.menu++;
     const details = e.type.startsWith('key')
