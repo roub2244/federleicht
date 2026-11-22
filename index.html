@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="UTF-8" />
+    <!-- user-scalable=no: Der Browser soll nicht selbst zoomen, das macht unsere App -->
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"
+    />
+    <title>Federleicht</title>
+    <meta name="description" content="Handschriftliche Notizen mit dem Stift" />
+    <meta name="theme-color" content="#f5f7fb" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#16181d" media="(prefers-color-scheme: dark)" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" href="/icons/icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/icons/icon-192.png" />
+  </head>
+  <body>
+    <!-- Obere Leiste -->
+    <header class="topbar">
+      <div class="brand">
+        <img src="/icons/icon.svg" alt="" width="28" height="28" />
+        <span>Federleicht</span>
+      </div>
+
+      <div class="actions">
+        <button id="btn-install" class="btn btn-accent" hidden>App installieren</button>
+        <button id="btn-zoom" class="btn" title="Zoom zurücksetzen">100 %</button>
+        <button id="btn-clear" class="icon-btn" title="Seite leeren" aria-label="Seite leeren">
+          <svg viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3" /></svg>
+        </button>
+        <button id="btn-debug" class="icon-btn" title="Stift-Diagnose ein/aus" aria-label="Stift-Diagnose">
+          <svg viewBox="0 0 24 24"><path d="M3 12h4l3-8 4 16 3-8h4" /></svg>
+        </button>
+      </div>
+    </header>
+
+    <!-- Die Zeichenfläche -->
+    <main id="stage">
+      <canvas id="canvas"></canvas>
+    </main>
+
+    <!-- Diagnose-Fenster: zeigt, was der S Pen an die App schickt -->
+    <aside id="debug" class="debug" hidden></aside>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

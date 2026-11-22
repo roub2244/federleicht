@@ -1,0 +1,235 @@
+/* style.css – das Aussehen der App */
+
+/* Farben als Variablen: so können wir später leicht Hell/Dunkel umschalten */
+:root {
+  --bg: #eef1f6;          /* Hintergrund hinter der Seite */
+  --bar: #f9fafc;         /* obere Leiste */
+  --text: #1d2433;
+  --muted: #6b7385;
+  --line: #e1e5ee;
+  --accent: #4a6cf7;      /* Akzentfarbe (Blau-Violett) */
+  --accent-soft: #e7ecff;
+  --page-shadow: rgba(30, 40, 70, 0.14);
+  --radius: 14px;
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  color: var(--text);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #101216;
+    --bar: #191c22;
+    --text: #e8ebf2;
+    --muted: #9aa2b4;
+    --line: #2a2f39;
+    --accent: #7b93ff;
+    --accent-soft: #252c47;
+    --page-shadow: rgba(0, 0, 0, 0.5);
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;            /* die Seite selbst soll nie scrollen */
+  overscroll-behavior: none;   /* kein "Ziehen zum Aktualisieren" */
+  background: var(--bg);
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none; /* kein Popup bei langem Drücken */
+  -webkit-tap-highlight-color: transparent;
+}
+
+body {
+  display: flex;
+  flex-direction: column;
+}
+
+/* ---------- Obere Leiste ---------- */
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  height: 56px;
+  padding: 0 16px;
+  padding-top: env(safe-area-inset-top);
+  background: var(--bar);
+  border-bottom: 1px solid var(--line);
+  flex-shrink: 0;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 650;
+  font-size: 18px;
+  letter-spacing: -0.01em;
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.btn,
+.icon-btn {
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.btn {
+  padding: 8px 14px;
+  font-variant-numeric: tabular-nums;
+}
+
+.btn-accent {
+  background: var(--accent);
+  color: white;
+  font-weight: 600;
+}
+
+.icon-btn {
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+}
+
+.icon-btn svg {
+  width: 22px;
+  height: 22px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.btn:hover,
+.icon-btn:hover {
+  background: var(--accent-soft);
+}
+
+.icon-btn.active {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+/* ---------- Zeichenfläche ---------- */
+#stage {
+  position: relative;
+  flex: 1;
+  overflow: hidden;
+}
+
+#canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  /* WICHTIG: Der Browser soll Wischen/Zoomen NICHT selbst behandeln.
+     Wir bekommen alle Berührungen als Pointer Events und entscheiden selbst. */
+  touch-action: none;
+}
+
+/* ---------- Diagnose-Fenster ---------- */
+.debug {
+  position: fixed;
+  left: 12px;
+  bottom: 12px;
+  width: 340px;
+  max-width: calc(100vw - 24px);
+  padding: 12px 14px;
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--bar) 92%, transparent);
+  backdrop-filter: blur(10px);
+  box-shadow: 0 8px 30px rgba(20, 30, 60, 0.18);
+  border: 1px solid var(--line);
+  font-size: 12.5px;
+  line-height: 1.5;
+  pointer-events: auto;
+}
+
+.debug h3 {
+  margin: 0 0 6px;
+  font-size: 13px;
+  font-weight: 650;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.debug dl {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 1px 10px;
+  margin: 0;
+}
+
+.debug dt {
+  color: var(--muted);
+}
+
+.debug dd {
+  margin: 0;
+  font-family: ui-monospace, 'Roboto Mono', monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+.debug .bar {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--line);
+  overflow: hidden;
+  margin-top: 5px;
+}
+
+.debug .bar > i {
+  display: block;
+  height: 100%;
+  width: 0;
+  background: var(--accent);
+}
+
+.debug .mode {
+  font-weight: 650;
+  color: var(--accent);
+}
+
+.debug .log {
+  margin: 8px 0 0;
+  padding: 6px 8px;
+  max-height: 120px;
+  overflow: auto;
+  border-radius: 8px;
+  background: var(--bg);
+  font-family: ui-monospace, 'Roboto Mono', monospace;
+  font-size: 11px;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.debug button {
+  border: 1px solid var(--line);
+  background: var(--bar);
+  color: var(--text);
+  border-radius: 999px;
+  font: inherit;
+  font-size: 11.5px;
+  padding: 2px 10px;
+}
