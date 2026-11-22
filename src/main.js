@@ -7,8 +7,9 @@ import { setupInput } from './input.js';
 import { Debug } from './debug.js';
 import { HoldDetector, linePoints, averagePressure, longEnough } from './straighten.js';
 import { History } from './history.js';
-import { loadTools } from './tools.js';
+import { loadTools, saveTools } from './tools.js';
 import { setupToolbar } from './toolbar.js';
+import { setupWheel } from './wheel.js';
 
 // ---------- Einstellungen ----------
 // Farbe, Dicke, Stiftart usw. kommen aus der Werkzeugleiste (siehe tools.js)
@@ -151,6 +152,12 @@ const app = {
     }
   },
 
+  // Stiftknopf in der Luft lange gehalten -> Schnellmenü-Rad an dieser Stelle öffnen
+  openQuickMenu(x, y) {
+    toolbar.closePopup();
+    wheel.open(x, y);
+  },
+
   panBy(dx, dy) {
     view.panBy(dx, dy);
     afterViewChange();
@@ -291,7 +298,6 @@ const toolbar = setupToolbar({
     if (tool !== 'eraser') toolBeforeEraser = tool;
     input.setStickyEraser(tool === 'eraser');
   },
-  onSettingsChange() {},
   onClear() {
     if (strokes.length === 0) return;
     history.push({ added: [], removed: [...strokes] }); // auch "Seite leeren" kann man rückgängig machen
@@ -300,6 +306,29 @@ const toolbar = setupToolbar({
   },
 });
 input.setStickyEraser(tools.tool === 'eraser');
+
+// ---------- Schnellmenü (Rad) ----------
+const wheel = setupWheel({
+  tools,
+  onPick({ kind, id }) {
+    if (kind === 'type') {
+      tools.pen.type = id;
+      toolbar.setTool('pen');
+    } else if (kind === 'tool') {
+      toolbar.setTool(id);
+    } else if (kind === 'color') {
+      // Farbe gilt für Stift oder Textmarker. War der Radierer an, geht's zurück zum Stift.
+      if (tools.tool === 'eraser') toolbar.setTool(toolBeforeEraser);
+      tools[tools.tool].color = id;
+    } else if (id === 'undo') {
+      undo();
+    } else if (id === 'redo') {
+      redo();
+    }
+    saveTools(tools);
+    toolbar.update();
+  },
+});
 
 undoButton.addEventListener('click', undo);
 redoButton.addEventListener('click', redo);

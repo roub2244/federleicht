@@ -15,6 +15,7 @@ import { getStroke } from 'perfect-freehand';
 export const PEN_STYLES = {
   fountain: { thinning: 0.6, smoothing: 0.55, streamline: 0.3, cap: true },   // Füller
   ballpoint: { thinning: 0.15, smoothing: 0.5, streamline: 0.35, cap: true }, // Kugelschreiber
+  felt: { thinning: 0.05, smoothing: 0.6, streamline: 0.4, cap: true },       // Filzstift
   brush: { thinning: 0.9, smoothing: 0.65, streamline: 0.3, cap: true },      // Pinsel
   highlighter: { thinning: 0, smoothing: 0.5, streamline: 0.45, cap: false }, // Textmarker
 };

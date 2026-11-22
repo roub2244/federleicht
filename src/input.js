@@ -24,6 +24,8 @@ const ARM_MS = 400;
 const STALE_MS = 250;
 // Kurzer Klick auf den Knopf beim Schweben (kürzer als CLICK_MS) schaltet den Radierer dauerhaft an/aus
 const CLICK_MS = 350;
+// Knopf in der Luft so lange (ms) gedrückt halten, ohne aufzusetzen -> Schnellmenü (Rad) öffnet sich
+const QUICK_MENU_MS = 700;
 
 // ---------- Die zwei wichtigsten Funktionen für den S Pen ----------
 //
@@ -100,6 +102,9 @@ export function setupInput(canvas, app) {
 
   let lastContactTime = -Infinity;
   let lastPenPos = [0, 0];         // letzte Stiftposition auf dem Bildschirm
+  let lastClient = [0, 0];         // ... und im ganzen Fenster (fürs Schnellmenü)
+  let quickTimer = 0;
+  let waitForRelease = false;      // nach dem Öffnen des Rads: Knopf muss erst losgelassen werden
 
   // Knopf-KLICK beim Schweben = Radierer-Modus umschalten (bleibt an, bis du wieder klickst)
   let stickyEraser = false;
@@ -137,12 +142,28 @@ export function setupInput(canvas, app) {
     silentContacts.clear();
   }
 
+  // Knopf lange genug in der Luft gehalten -> Schnellmenü öffnen
+  function openQuickMenu() {
+    if (contacts.size > 0 || !buttonHeld) return;
+    buttonHeld = false;              // der Knopf zählt jetzt nicht mehr als "Radierer bereit"
+    buttonReleasedAt = -Infinity;
+    waitForRelease = true;
+    clearTimeout(clickTimer);
+    if (eraserShown) {
+      app.showEraser(null);
+      eraserShown = false;
+    }
+    app.debug.addLine('Knopf lange gehalten → Schnellmenü');
+    app.openQuickMenu(lastClient[0], lastClient[1]);
+  }
+
   // Knopf gerade gedrückt oder erst ganz kurz losgelassen?
   const eraserReady = (time) => buttonHeld || time - buttonReleasedAt < ARM_MS;
 
   function handlePen(e) {
     lastPenTime = e.timeStamp;
     lastPenPos = screenPos(e);
+    lastClient = [e.clientX, e.clientY];
     const id = e.pointerId;
 
     // Der Stift hat Vorrang: Liegt schon ein "Finger" (= Handballen) auf, ignorieren wir ihn ab jetzt.
@@ -180,6 +201,7 @@ export function setupInput(canvas, app) {
     }
 
     if (starting) {
+      clearTimeout(quickTimer); // aufgesetzt -> doch kein Schnellmenü
       capture(id);
       contacts.add(id);
       contactSincePress = true;
@@ -200,12 +222,20 @@ export function setupInput(canvas, app) {
         isEraserButton(e) || penMode === 'erase' || (starting && (stickyEraser || eraserReady(e.timeStamp)));
     } else if (contacts.size === 0 && !ended) {
       // Schweben: Knopf-Zustand merken
-      const held = isButtonHeldWhileHovering(e);
+      let held = isButtonHeldWhileHovering(e);
+      if (waitForRelease) {
+        // Nach dem Schnellmenü: erst wenn der Knopf los ist, zählt er wieder
+        if (!held) waitForRelease = false;
+        held = false;
+      }
       if (!buttonHeld && held) {
         buttonPressedAt = e.timeStamp;
         contactSincePress = false;
+        clearTimeout(quickTimer);
+        quickTimer = setTimeout(openQuickMenu, QUICK_MENU_MS);
       }
       if (buttonHeld && !held) {
+        clearTimeout(quickTimer);
         buttonReleasedAt = e.timeStamp;
         // Ein Klick: kurz gedrückt, dabei nicht aufgesetzt, und nicht direkt nach dem Abheben
         const short = e.timeStamp - buttonPressedAt < CLICK_MS;
