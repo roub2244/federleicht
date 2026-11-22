@@ -20,6 +20,8 @@ const PALM_SIZE = 45;
 // Kurz bevor die Spitze aufsetzt, meldet das Tablet "Knopf los" (buttons = 0).
 // Deshalb zählt ein Knopf, der vor weniger als ARM_MS losgelassen wurde, noch als gedrückt.
 const ARM_MS = 400;
+// Kommt so lange (ms) kein Event vom aufliegenden Stift, gilt er als abgehoben
+const STALE_MS = 250;
 
 // ---------- Die zwei wichtigsten Funktionen für den S Pen ----------
 //
@@ -94,6 +96,17 @@ export function setupInput(canvas, app) {
   let buttonHeld = false;         // letzter bekannter Knopf-Zustand beim Schweben
   let buttonReleasedAt = -Infinity;
 
+  let lastContactTime = -Infinity;
+
+  // Alle aufliegenden Stift-Pointer beenden (falls das System uns kein pointerup schickt)
+  function abortContacts() {
+    if (penMode === 'draw') app.endStroke();
+    if (penMode === 'erase') app.endErase();
+    penMode = 'none';
+    contacts.clear();
+    silentContacts.clear();
+  }
+
   // Knopf gerade gedrückt oder erst ganz kurz losgelassen?
   const eraserReady = (time) => buttonHeld || time - buttonReleasedAt < ARM_MS;
 
@@ -107,10 +120,15 @@ export function setupInput(canvas, app) {
       touches.clear();
     }
 
+    if (contacts.has(id)) lastContactTime = e.timeStamp;
+
     // Liegt schon ein anderer Stift-Pointer auf dem Display, ignorieren wir alle anderen
     // (z. B. Schwebe-Events, die das Tablet manchmal nebenher schickt).
+    // Kommt vom aufliegenden Pointer aber länger nichts mehr, hat das System ihn
+    // "verschluckt" – dann beenden wir ihn selbst, damit nichts hängen bleibt.
     if (contacts.size > 0 && !contacts.has(id) && e.type !== 'pointerdown') {
-      return 'ignoriert (anderer Stift-Pointer)';
+      if (e.timeStamp - lastContactTime < STALE_MS) return 'ignoriert (anderer Stift-Pointer)';
+      abortContacts();
     }
 
     // Berührt der Stift das Display? Das entscheiden wir über pointerdown/pointerup,
@@ -264,6 +282,14 @@ export function setupInput(canvas, app) {
   for (const type of ['pointerdown', 'pointermove', 'pointerup', 'pointercancel']) {
     canvas.addEventListener(type, onPointerEvent);
   }
+
+  // Das System hat uns den Stift "weggenommen" (z. B. für eine Samsung-Funktion)
+  canvas.addEventListener('lostpointercapture', (e) => {
+    if (contacts.has(e.pointerId)) {
+      abortContacts();
+      app.debug.addLine(`lostpointercapture id=${e.pointerId} → Strich beendet`);
+    }
+  });
 
   // Stift verlässt den Schwebe-Bereich -> Radierer-Kreis weg
   canvas.addEventListener('pointerleave', (e) => {
