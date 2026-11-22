@@ -7,6 +7,7 @@
 //  So muss pro Stiftbewegung nicht die ganze Seite neu gemalt werden.
 
 import { PAGE_WIDTH, PAGE_HEIGHT } from './view.js';
+import { fillStroke } from './ink.js';
 
 export class Renderer {
   constructor(canvas, view, strokes) {
@@ -119,8 +120,7 @@ export class Renderer {
     for (const s of this.strokes) {
       const b = s.box;
       if (!b || b.maxX < vx0 || b.minX > vx1 || b.maxY < vy0 || b.minY > vy1) continue;
-      c.fillStyle = s.color;
-      c.fill(s.path);
+      fillStroke(c, s);
     }
     c.restore();
   }
@@ -162,8 +162,7 @@ export class Renderer {
     c.save();
     this.applyView(c);
     this.clipToPage(c);
-    c.fillStyle = stroke.color;
-    c.fill(stroke.path);
+    fillStroke(c, stroke);
     c.restore();
     this.setOverlay(null);
   }

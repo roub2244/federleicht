@@ -7,21 +7,31 @@
 
 import { getStroke } from 'perfect-freehand';
 
-// Einstellungen für die Glättung (probier ruhig andere Werte aus!)
-const FREEHAND_OPTIONS = {
-  thinning: 0.6,    // wie stark der Druck die Dicke ändert (0 = gar nicht)
-  smoothing: 0.55,  // wie rund der Umriss wird
-  streamline: 0.3,  // wie stark Zittern ausgeglichen wird (hoch = glatter, aber "hinterher")
-  start: { cap: true, taper: 0 },
-  end: { cap: true, taper: 0 },
+// Stiftarten: Jede Art ist nur eine andere Einstellung für perfect-freehand.
+//   thinning:   wie stark der Druck die Dicke ändert (0 = gar nicht, 1 = sehr stark)
+//   smoothing:  wie rund der Umriss wird
+//   streamline: wie stark Zittern ausgeglichen wird (hoch = glatter, aber "hinterher")
+//   cap:        runde Enden (true) oder gerade abgeschnitten (false)
+export const PEN_STYLES = {
+  fountain: { thinning: 0.6, smoothing: 0.55, streamline: 0.3, cap: true },   // Füller
+  ballpoint: { thinning: 0.15, smoothing: 0.5, streamline: 0.35, cap: true }, // Kugelschreiber
+  brush: { thinning: 0.9, smoothing: 0.65, streamline: 0.3, cap: true },      // Pinsel
+  highlighter: { thinning: 0, smoothing: 0.5, streamline: 0.45, cap: false }, // Textmarker
 };
 
+function styleOf(stroke) {
+  return PEN_STYLES[stroke.penType] || PEN_STYLES.fountain;
+}
+
 // Einen neuen, leeren Strich anlegen
-export function createStroke({ color, size, simulatePressure }) {
+export function createStroke({ tool = 'pen', penType = 'fountain', color, size, simulatePressure, z = 0 }) {
   return {
+    tool,               // 'pen' oder 'highlighter'
+    penType,            // Schlüssel aus PEN_STYLES
     color,
     size,               // Dicke in Seiten-Einheiten (Seite ist 1000 breit)
     simulatePressure,   // true bei Maus: Druck aus der Geschwindigkeit "raten"
+    z,                  // Reihenfolge: Striche mit kleinerem z liegen weiter unten
     points: [],         // [[x, y, druck], ...]
     path: null,         // fertige Form zum Zeichnen (Path2D)
     box: null,          // umgebendes Rechteck {minX, minY, maxX, maxY}
@@ -33,13 +43,41 @@ export function createStroke({ color, size, simulatePressure }) {
 // finished: true, wenn der Stift wieder abgehoben wurde
 export function buildPath(stroke, extraPoints = [], finished = false) {
   const points = extraPoints.length ? stroke.points.concat(extraPoints) : stroke.points;
+  const style = styleOf(stroke);
   const outline = getStroke(points, {
-    ...FREEHAND_OPTIONS,
+    thinning: style.thinning,
+    smoothing: style.smoothing,
+    streamline: style.streamline,
+    start: { cap: style.cap, taper: 0 },
+    end: { cap: style.cap, taper: 0 },
     size: stroke.size,
-    simulatePressure: stroke.simulatePressure,
+    simulatePressure: stroke.simulatePressure && style.thinning > 0,
     last: finished,
   });
   return outlineToPath(outline);
+}
+
+// Strich fertig machen: endgültige Form berechnen und speichern
+export function finishStroke(stroke) {
+  const { path, box } = buildPath(stroke, [], true);
+  stroke.path = path;
+  stroke.box = box;
+  return stroke;
+}
+
+// Einen Strich auf einen Zeichen-Kontext malen.
+// Der Textmarker malt mit "multiply" (multiplizieren): Weiß wird zur Markerfarbe,
+// Schwarz bleibt schwarz. So bleibt Schrift unter dem Marker gut lesbar – wie echt.
+export function fillStroke(ctx, stroke, path = stroke.path) {
+  ctx.fillStyle = stroke.color;
+  if (stroke.tool === 'highlighter') {
+    ctx.save();
+    ctx.globalCompositeOperation = 'multiply';
+    ctx.fill(path);
+    ctx.restore();
+  } else {
+    ctx.fill(path);
+  }
 }
 
 // Den Umriss (viele Eckpunkte) in eine glatte Form mit Kurven umwandeln.
@@ -90,4 +128,51 @@ export function strokeHit(stroke, x, y, r) {
     if (distanceToSegment(x, y, pts[i - 1], pts[i]) <= reach) return true;
   }
   return false;
+}
+
+// ---------- Bereichs-Radierer ----------
+
+// Zwischen weit auseinanderliegenden Punkten neue Punkte einfügen (alle "step" Einheiten).
+// Sonst könnte der Radierer zwischen zwei Punkten nichts treffen.
+function densify(points, step) {
+  const result = [points[0]];
+  for (let i = 1; i < points.length; i++) {
+    const a = points[i - 1];
+    const b = points[i];
+    const n = Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) / step);
+    for (let k = 1; k <= n; k++) {
+      const t = k / n;
+      result.push([a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t]);
+    }
+  }
+  return result;
+}
+
+// Ein Loch (Kreis um x/y mit Radius r) in einen Strich radieren.
+// Gibt die übrig gebliebenen Stücke als neue, fertige Striche zurück
+// (leere Liste = alles weg) oder null, wenn der Kreis den Strich gar nicht berührt.
+export function cutStroke(stroke, x, y, r) {
+  // Runde Enden ragen eine halbe Dicke über den letzten Punkt hinaus
+  const reach = r + (styleOf(stroke).cap ? stroke.size / 2 : 0);
+  const step = Math.max(0.5, Math.min(r, stroke.size) / 3);
+  const points = densify(stroke.points, step);
+
+  const pieces = [];
+  let piece = [];
+  let removedAny = false;
+  for (const p of points) {
+    if (Math.hypot(p[0] - x, p[1] - y) < reach) {
+      removedAny = true;
+      if (piece.length) pieces.push(piece);
+      piece = [];
+    } else {
+      piece.push(p);
+    }
+  }
+  if (piece.length) pieces.push(piece);
+  if (!removedAny) return null;
+
+  return pieces
+    .filter((pts) => pts.length >= 2) // winzige Krümel weglassen
+    .map((pts) => finishStroke({ ...stroke, points: pts, path: null, box: null }));
 }
