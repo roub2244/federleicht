@@ -20,6 +20,7 @@
 import { finishStroke } from './ink.js';
 import { packText, reviveText } from './text.js';
 import { packImage, reviveImage } from './media.js';
+import { packFill, reviveFill } from './fill.js';
 
 const DB_NAME = 'federleicht';
 const DB_VERSION = 2; // 2: Schublade "blobs" für Bilder und PDFs
@@ -182,8 +183,8 @@ const packCache = new WeakMap(); // fertige Striche ändern sich nie -> nur einm
 export function packStroke(s) {
   let packed = packCache.get(s);
   if (packed) return packed;
-  if (s.tool === 'text' || s.tool === 'image') {
-    packed = s.tool === 'text' ? packText(s) : packImage(s);
+  if (s.tool === 'text' || s.tool === 'image' || s.tool === 'fill') {
+    packed = s.tool === 'text' ? packText(s) : s.tool === 'image' ? packImage(s) : packFill(s);
     packCache.set(s, packed);
     return packed;
   }
@@ -219,6 +220,7 @@ export function packStroke(s) {
 export function unpackStroke(d) {
   if (d.tool === 'text') return reviveText(d);
   if (d.tool === 'image') return reviveImage(d);
+  if (d.tool === 'fill') return reviveFill(d);
   const pts = d.pts instanceof Float32Array ? d.pts : Float32Array.from(d.pts || []);
   const points = [];
   for (let i = 0; i + 2 < pts.length; i += 3) points.push([pts[i], pts[i + 1], pts[i + 2]]);

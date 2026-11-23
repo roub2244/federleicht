@@ -27,6 +27,7 @@ import { prepareImage, createImageItem, placeMatrix, remember, onMediaLoaded, en
 import { importPdf, scheduleSharp } from './pdfdoc.js';
 import { exportPdf, exportImage, fileName, canShareFile, shareFile, downloadFile } from './export.js';
 import { setupMediaMenu } from './mediamenu.js';
+import { computeFill, createFill } from './fill.js';
 
 // ---------- Einstellungen ----------
 // Farbe, Dicke, Stiftart usw. kommen aus der Werkzeugleiste (siehe tools.js)
@@ -97,6 +98,12 @@ const app = {
     currentPage = doc.pages[index];
     currentTop = doc.top(index);
     if (tools.tool === 'shape') return beginShapeDrag(toLocal(point));
+    if (tools.tool === 'fill') {
+      // Farbeimer: Antippen füllt, der Rest dieser Berührung wird ignoriert
+      swallowPen = true;
+      fillAt(currentPage, toLocal(point));
+      return;
+    }
     beginStroke(toLocal(point), pointerType);
   },
 
@@ -499,6 +506,50 @@ function finishShapeDrag() {
   markDirty([currentPage]);
 }
 
+// ---------- Farbeimer (siehe fill.js) ----------
+function fillAt(page, [x, y]) {
+  if (!doc.pages.includes(page)) return;
+  let result;
+  try {
+    result = computeFill(page, x, y, view.scale);
+  } catch (err) {
+    console.warn('Füllen fehlgeschlagen', err);
+    toast('Füllen hat nicht geklappt');
+    return;
+  }
+  if (result.error === 'outside') return;
+  if (result.error) {
+    toast('Tippe in eine Fläche, nicht auf eine Linie');
+    return;
+  }
+  const { color, alpha } = tools.fill;
+  // Liegt hier schon eine Füllung derselben Fläche? Dann wird sie ersetzt (neue Farbe)
+  const fresh = createFill({ color, alpha, rings: result.rings, z: 0 });
+  const b = fresh.box;
+  const same = (s) =>
+    s.tool === 'fill' && s.box && fillContainsPoint(s, x, y) &&
+    Math.abs(s.box.minX - b.minX) < 4 && Math.abs(s.box.maxX - b.maxX) < 4 && Math.abs(s.box.minY - b.minY) < 4 && Math.abs(s.box.maxY - b.maxY) < 4;
+  const removed = page.strokes.filter(same);
+  // Reihenfolge: UNTER die Striche, die die Fläche umgeben, aber über Bilder und ältere Füllungen
+  const overlaps = (s) => s.box && s.box.maxX >= b.minX && s.box.minX <= b.maxX && s.box.maxY >= b.minY && s.box.minY <= b.maxY;
+  const near = page.strokes.filter((s) => overlaps(s) && !removed.includes(s));
+  const inkZ = near.filter((s) => s.tool !== 'fill' && s.tool !== 'image').map((s) => s.z);
+  const lowZ = near.filter((s) => s.tool === 'fill' || s.tool === 'image').map((s) => s.z);
+  if (!inkZ.length) fresh.z = nextZ++;
+  else {
+    const top = Math.min(...inkZ);
+    const below = lowZ.filter((z) => z < top);
+    fresh.z = below.length ? (Math.max(...below) + top) / 2 : top - 0.5;
+  }
+  commitChanges([{ page, added: [fresh], removed }]);
+  navigator.vibrate?.(6);
+  if (result.whole) toast('Die Fläche war nicht geschlossen – fast die ganze Seite wurde gefüllt', { label: 'Rückgängig', run: undo });
+}
+
+function fillContainsPoint(s, x, y) {
+  return strokeHit(s, x, y, 0);
+}
+
 // Änderungen vom Lasso übernehmen: Striche ersetzen, als EIN Schritt rückgängig machbar, speichern
 function commitChanges(changes) {
   for (const c of changes) {
@@ -518,6 +569,10 @@ function eraseAt(x, y) {
   const r = tools.eraser.size / view.scale; // Bildschirm-Pixel -> Seiten-Einheiten
   let area = null; // Bereich, in dem sich etwas geändert hat (Dokument-Koordinaten)
   const [first, last] = doc.range(y - r, y + r);
+  // Erst Striche, Texte usw. – eine Füllung nur, wenn an dieser Stelle sonst nichts ist
+  // (sonst wäre beim Radieren einer Linie in einer bunten Fläche gleich die ganze Farbe weg)
+  for (const fillPass of [false, true]) {
+  if (fillPass && area) break;
   for (let p = first; p <= last; p++) {
     const page = doc.pages[p];
     const top = doc.top(p);
@@ -527,6 +582,7 @@ function eraseAt(x, y) {
     for (let i = strokes.length - 1; i >= 0; i--) {
       const stroke = strokes[i];
       if (tools.eraser.onlyHighlighter && stroke.tool !== 'highlighter') continue;
+      if ((stroke.tool === 'fill') !== fillPass) continue;
       if (!strokeHit(stroke, x, ly, r)) continue;
 
       let pieces = [];
@@ -539,6 +595,7 @@ function eraseAt(x, y) {
       strokes.splice(i, 1, ...pieces); // Strich durch seine Reststücke ersetzen (gleiche Stelle = gleiches z)
       noteErased(page, stroke, pieces);
     }
+  }
   }
   // Sofort nur diesen Bereich neu malen (nicht erst beim nächsten Bild alles)
   if (area) renderer.redrawArea(area);
@@ -1141,6 +1198,7 @@ const wheel = setupWheel({
     } else if (act === 'color') {
       // Farbe gilt für den aktuellen Stift. War der Radierer an, geht's zurück zum Stift.
       if (tools.tool === 'shape') tools.shape.color = id;
+      else if (tools.tool === 'fill') tools.fill.color = id;
       else {
         if (!['pen', 'highlighter'].includes(tools.tool)) toolbar.setTool(toolBeforeEraser === 'highlighter' ? 'highlighter' : 'pen');
         settingsOf(tools, activeStyle(tools).type).color = id;

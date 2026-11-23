@@ -22,6 +22,7 @@ import { PAGE_WIDTH, PAGE_HEIGHT } from './view.js';
 import { fillStroke, strokeHit, transformStroke, recolorStroke, withZ } from './ink.js';
 import { textContentBox } from './text.js';
 import { imageHit, imageSamples } from './media.js';
+import { fillSamples, fillContains } from './fill.js';
 import {
   IDENTITY, compose, translate, rotate, scale, apply, isIdentity, pointInPolygon, boundsOf, unionBox, snapAngle, DEG,
 } from './geometry.js';
@@ -192,6 +193,8 @@ export function setupLasso({ stage, view, doc, renderer, tools, commit, newZ, cu
     let samples;
     if (s.tool === 'image') {
       samples = imageSamples(s);
+    } else if (s.tool === 'fill') {
+      samples = fillSamples(s);
     } else if (s.tool === 'text') {
       samples = [];
       for (let i = 0; i < 3; i++) {
@@ -211,7 +214,7 @@ export function setupLasso({ stage, view, doc, renderer, tools, commit, newZ, cu
     for (let i = page.strokes.length - 1; i >= 0; i--) {
       const s = page.strokes[i];
       if (!wanted(s)) continue;
-      if (s.tool === 'image' ? imageHit(s, x, y, r) : s.tool === 'text' ? boxHit(boxOf(s), x, y, r) : strokeHit(s, x, y, r) || fillHit(s, x, y)) return s;
+      if (s.tool === 'image' ? imageHit(s, x, y, r) : s.tool === 'fill' ? fillContains(s, x, y) : s.tool === 'text' ? boxHit(boxOf(s), x, y, r) : strokeHit(s, x, y, r) || fillHit(s, x, y)) return s;
     }
     return null;
   }
