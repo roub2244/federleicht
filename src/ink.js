@@ -1,84 +1,175 @@
 // ink.js – Striche: aus Stiftpunkten eine schöne, glatte Linie machen
 //
-// Ein Strich ist einfach eine Liste von Punkten [x, y, druck].
+// Ein Strich ist eine Liste von Punkten [x, y, druck].
 // Die Bibliothek "perfect-freehand" macht daraus den Umriss einer Linie,
-// die dort dicker ist, wo du fester drückst. Den Umriss füllen wir dann
-// mit Farbe – so entsteht eine Linie, die wie mit echter Tinte aussieht.
+// die dort dicker ist, wo du fester drückst. Den Umriss füllen wir mit Farbe.
+//
+// Jede Stiftart bekommt eigene Einstellungen – und ein paar eigene Tricks:
+//   Kugelschreiber: fast gleich dick, egal wie fest du drückst
+//   Füller:         Druck macht ihn deutlich dicker, dazu eine schräge Feder
+//                   (Abstriche dicker, Querstriche dünner), weiche Anfänge und Enden
+//   Filzstift:      gleichmäßig breit, deckend, mit leicht weichem Rand
+//   Pinsel:         leicht = haarfein, fest = sehr breit, spitze Enden, durchscheinender Rand
+//   Textmarker:     breit, durchsichtig, gerade Enden, wird beim Übermalen nicht dunkler
 
 import { getStroke } from 'perfect-freehand';
 
-// Stiftarten: Jede Art ist nur eine andere Einstellung für perfect-freehand.
-//   thinning:   wie stark der Druck die Dicke ändert (0 = gar nicht, 1 = sehr stark)
-//   smoothing:  wie rund der Umriss wird
-//   streamline: wie stark Zittern ausgeglichen wird (hoch = glatter, aber "hinterher")
-//   cap:        runde Enden (true) oder gerade abgeschnitten (false)
+// thinning:   wie stark der Druck die Dicke ändert (0 = gar nicht, 1 = sehr stark)
+// smoothing:  wie rund der Umriss wird
+// streamline: wie stark Zittern ausgeglichen wird (hoch = glatter, aber "hinterher")
+// curve:      Druck-Kurve (> 1: leichter Druck wirkt noch leichter)
+// taperStart/taperEnd: wie lang die Spitze am Anfang/Ende ist (mal Dicke)
+// layers:     mehrere Umrisse übereinander: scale = Dicke, grow = etwas breiter, alpha = Deckkraft
 export const PEN_STYLES = {
-  fountain: { thinning: 0.6, smoothing: 0.55, streamline: 0.3, cap: true },   // Füller
-  ballpoint: { thinning: 0.15, smoothing: 0.5, streamline: 0.35, cap: true }, // Kugelschreiber
-  felt: { thinning: 0.05, smoothing: 0.6, streamline: 0.4, cap: true },       // Filzstift
-  brush: { thinning: 0.9, smoothing: 0.65, streamline: 0.3, cap: true },      // Pinsel
-  highlighter: { thinning: 0, smoothing: 0.5, streamline: 0.45, cap: false }, // Textmarker
+  ballpoint: {
+    thinning: 0.12, smoothing: 0.5, streamline: 0.42, cap: true,
+    layers: [{ scale: 1, alpha: 1 }],
+  },
+  fountain: {
+    thinning: 0.86, smoothing: 0.6, streamline: 0.35, cap: true, curve: 1.15,
+    nib: true, taperStart: 2.2, taperEnd: 3.2,
+    layers: [{ scale: 1, alpha: 1 }],
+  },
+  felt: {
+    thinning: 0.03, smoothing: 0.7, streamline: 0.45, cap: true,
+    layers: [{ scale: 1, grow: 1.4, alpha: 0.3 }, { scale: 1, alpha: 1 }],
+  },
+  brush: {
+    thinning: 0.95, smoothing: 0.75, streamline: 0.4, cap: true, curve: 1.7,
+    taperStart: 4, taperEnd: 6,
+    layers: [{ scale: 1, alpha: 0.3 }, { scale: 0.72, alpha: 0.95 }],
+  },
+  highlighter: {
+    thinning: 0, smoothing: 0.5, streamline: 0.5, cap: false,
+    layers: [{ scale: 1, alpha: 1 }],
+  },
 };
 
+// Winkel der schrägen Füller-Feder (wie beim Schönschreiben, etwa 40° nach rechts oben)
+const NIB_ANGLE = (-40 * Math.PI) / 180;
+
 function styleOf(stroke) {
-  return PEN_STYLES[stroke.penType] || PEN_STYLES.fountain;
+  return PEN_STYLES[stroke.penType] || PEN_STYLES.ballpoint;
 }
 
 // Einen neuen, leeren Strich anlegen
-export function createStroke({ tool = 'pen', penType = 'fountain', color, size, simulatePressure, z = 0 }) {
+export function createStroke({ tool = 'pen', penType = 'ballpoint', color, size, opacity = 1, simulatePressure, z = 0 }) {
   return {
     tool,               // 'pen' oder 'highlighter'
     penType,            // Schlüssel aus PEN_STYLES
     color,
     size,               // Dicke in Seiten-Einheiten (Seite ist 1000 breit)
+    opacity,            // nur beim Textmarker (0 bis 1)
     simulatePressure,   // true bei Maus: Druck aus der Geschwindigkeit "raten"
     z,                  // Reihenfolge: Striche mit kleinerem z liegen weiter unten
     points: [],         // [[x, y, druck], ...]
-    path: null,         // fertige Form zum Zeichnen (Path2D)
+    layers: null,       // fertige Formen zum Zeichnen: [{ path: Path2D, alpha }]
     box: null,          // umgebendes Rechteck {minX, minY, maxX, maxY}
   };
 }
 
-// Aus den Punkten den Umriss berechnen.
+// Schräge Feder: Der Druck wird je nach Schreibrichtung etwas kleiner oder größer.
+// Bewegst du den Stift quer zur Feder, ist der Strich breit, entlang der Feder schmal.
+// Die Richtung messen wir über ein paar Punkte hinweg, damit sie nicht zittert.
+function applyNib(points, fixedPressure) {
+  const n = points.length;
+  const out = new Array(n);
+  let factor = 0.75;
+  for (let i = 0; i < n; i++) {
+    const a = points[Math.max(0, i - 2)];
+    const b = points[Math.min(n - 1, i + 2)];
+    const dx = b[0] - a[0];
+    const dy = b[1] - a[1];
+    if (dx * dx + dy * dy > 0.25) {
+      factor = 0.3 + 0.7 * Math.abs(Math.sin(Math.atan2(dy, dx) - NIB_ANGLE));
+    }
+    const pressure = fixedPressure ?? points[i][2] ?? 0.5;
+    out[i] = [points[i][0], points[i][1], Math.min(1, pressure * factor * 1.5)];
+  }
+  return out;
+}
+
+// Aus den Punkten die Umrisse berechnen.
 // extraPoints: vorhergesagte Punkte (nur fürs Anzeigen, werden nicht gespeichert)
 // finished: true, wenn der Stift wieder abgehoben wurde
 export function buildPath(stroke, extraPoints = [], finished = false) {
-  const points = extraPoints.length ? stroke.points.concat(extraPoints) : stroke.points;
   const style = styleOf(stroke);
-  const outline = getStroke(points, {
-    thinning: style.thinning,
-    smoothing: style.smoothing,
-    streamline: style.streamline,
-    start: { cap: style.cap, taper: 0 },
-    end: { cap: style.cap, taper: 0 },
-    size: stroke.size,
-    simulatePressure: stroke.simulatePressure && style.thinning > 0,
-    last: finished,
-  });
-  return outlineToPath(outline);
+  let points = extraPoints.length ? stroke.points.concat(extraPoints) : stroke.points;
+  let simulate = stroke.simulatePressure && style.thinning > 0;
+  if (style.nib) {
+    points = applyNib(points, stroke.simulatePressure ? 0.5 : undefined);
+    simulate = false; // der Füller rechnet den Druck selbst aus
+  }
+  const curve = style.curve || 1;
+
+  const layers = [];
+  let box = null;
+  for (const layer of style.layers) {
+    const size = stroke.size * layer.scale + (layer.grow || 0);
+    const outline = getStroke(points, {
+      size,
+      thinning: style.thinning,
+      smoothing: style.smoothing,
+      streamline: style.streamline,
+      easing: (p) => Math.pow(p, curve),
+      simulatePressure: simulate,
+      start: { cap: style.cap, taper: style.taperStart ? style.taperStart * size : 0 },
+      // Die Spitze am Ende erst beim Abheben – sonst "zuckt" das Ende beim Schreiben
+      end: { cap: style.cap, taper: finished && style.taperEnd ? style.taperEnd * size : 0 },
+      last: finished,
+    });
+    const shape = outlineToPath(outline);
+    if (!shape.box) continue;
+    layers.push({ path: shape.path, alpha: layer.alpha });
+    box = box ? unionBox(box, shape.box) : shape.box;
+  }
+  return { layers, box };
+}
+
+function unionBox(a, b) {
+  return {
+    minX: Math.min(a.minX, b.minX),
+    minY: Math.min(a.minY, b.minY),
+    maxX: Math.max(a.maxX, b.maxX),
+    maxY: Math.max(a.maxY, b.maxY),
+  };
 }
 
 // Strich fertig machen: endgültige Form berechnen und speichern
 export function finishStroke(stroke) {
-  const { path, box } = buildPath(stroke, [], true);
-  stroke.path = path;
+  const { layers, box } = buildPath(stroke, [], true);
+  stroke.layers = layers;
   stroke.box = box;
   return stroke;
 }
 
-// Einen Strich auf einen Zeichen-Kontext malen.
-// Der Textmarker malt mit "multiply" (multiplizieren): Weiß wird zur Markerfarbe,
-// Schwarz bleibt schwarz. So bleibt Schrift unter dem Marker gut lesbar – wie echt.
-export function fillStroke(ctx, stroke, path = stroke.path) {
-  ctx.fillStyle = stroke.color;
+// Farbe mit Weiß mischen: so sieht der Textmarker auf weißem Papier aus.
+// opacity 1 = volle Farbe, 0 = weiß
+export function highlighterColor(hex, opacity) {
+  const n = parseInt(hex.slice(1), 16);
+  const mix = (c) => Math.round(255 - (255 - c) * opacity);
+  return `rgb(${mix((n >> 16) & 255)}, ${mix((n >> 8) & 255)}, ${mix(n & 255)})`;
+}
+
+// Einen Strich auf einen Zeichen-Kontext malen. built = Ergebnis von buildPath (Standard: der fertige Strich)
+//
+// Der Textmarker malt mit "darken" (abdunkeln): Pro Farbkanal gewinnt der dunklere Wert.
+//  - Schrift darunter ist dunkler -> bleibt genau so sichtbar
+//  - zweimal derselbe Marker übereinander -> gleich dunkel, wird NICHT dunkler (wie gewünscht)
+export function fillStroke(ctx, stroke, built = stroke) {
+  if (!built.layers) return;
+  ctx.save();
   if (stroke.tool === 'highlighter') {
-    ctx.save();
-    ctx.globalCompositeOperation = 'multiply';
-    ctx.fill(path);
-    ctx.restore();
+    ctx.globalCompositeOperation = 'darken';
+    ctx.fillStyle = highlighterColor(stroke.color, stroke.opacity ?? 0.45);
   } else {
-    ctx.fill(path);
+    ctx.fillStyle = stroke.color;
   }
+  for (const layer of built.layers) {
+    ctx.globalAlpha = layer.alpha;
+    ctx.fill(layer.path);
+  }
+  ctx.restore();
 }
 
 // Den Umriss (viele Eckpunkte) in eine glatte Form mit Kurven umwandeln.
@@ -175,5 +266,5 @@ export function cutStroke(stroke, x, y, r) {
 
   return pieces
     .filter((pts) => pts.length >= 2) // winzige Krümel weglassen
-    .map((pts) => finishStroke({ ...stroke, points: pts, path: null, box: null }));
+    .map((pts) => finishStroke({ ...stroke, points: pts, layers: null, box: null }));
 }

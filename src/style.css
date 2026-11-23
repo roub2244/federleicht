@@ -13,7 +13,7 @@
   --radius: 14px;
   /* "Milchglas" für Menüs: halb durchsichtig, dahinter wird alles weichgezeichnet */
   --glass: rgba(255, 255, 255, 0.78);
-  --glass-strong: rgba(255, 255, 255, 0.92);
+  --glass-strong: rgba(255, 255, 255, 0.96);
   --glass-border: rgba(255, 255, 255, 0.9);
   --chip: rgba(20, 30, 60, 0.05);
   --menu-shadow: 0 1px 2px rgba(20, 30, 60, 0.06), 0 12px 28px rgba(20, 30, 60, 0.12), 0 30px 60px rgba(20, 30, 60, 0.1);
@@ -33,7 +33,7 @@
     --accent-soft: #252c47;
     --page-shadow: rgba(0, 0, 0, 0.5);
     --glass: rgba(32, 36, 46, 0.78);
-    --glass-strong: rgba(32, 36, 46, 0.94);
+    --glass-strong: rgba(32, 36, 46, 0.97);
     --glass-border: rgba(255, 255, 255, 0.08);
     --chip: rgba(255, 255, 255, 0.06);
     --menu-shadow: 0 12px 28px rgba(0, 0, 0, 0.35), 0 30px 60px rgba(0, 0, 0, 0.3);
@@ -235,23 +235,65 @@ body {
   opacity: 0.6;
 }
 
+/* ---------- Favoriten in der Leiste ---------- */
+.favorites {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 8px 0 12px;
+  margin-left: 4px;
+  border-left: 1px solid var(--line);
+}
+
+.fav {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: var(--c);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.12);
+  cursor: pointer;
+  transition: transform 0.15s;
+  -webkit-touch-callout: none;
+}
+
+.fav.light {
+  box-shadow: inset 0 0 0 1.5px #9aa0aa;
+}
+
+/* Textmarker-Favorit: halb durchsichtig mit flacher Kante */
+.fav.hl {
+  border-radius: 7px;
+  opacity: 0.75;
+}
+
+.fav.active {
+  box-shadow: 0 0 0 2px var(--bar), 0 0 0 4px var(--accent);
+}
+
+.fav:active {
+  transform: scale(0.88);
+}
+
 /* ---------- Popup mit Einstellungen ---------- */
 .popup {
   position: fixed;
   z-index: 10;
-  width: 340px;
+  width: 360px;
   max-width: calc(100vw - 16px);
   max-height: calc(100vh - 90px);
   overflow-y: auto;
-  padding: 16px 18px 18px;
-  border-radius: 28px;
-  background: var(--glass);
+  padding: 10px 16px 14px;
+  border-radius: 30px;
+  background: var(--glass-strong);
   -webkit-backdrop-filter: blur(28px) saturate(1.8);
   backdrop-filter: blur(28px) saturate(1.8);
   border: 1px solid var(--glass-border);
   box-shadow: var(--menu-shadow);
   transform-origin: top center;
   animation: pop 0.22s cubic-bezier(0.2, 0.9, 0.3, 1.2);
+  scrollbar-width: none;
 }
 
 @keyframes pop {
@@ -262,22 +304,51 @@ body {
 }
 
 .popup-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  margin: 0 2px 12px;
+  display: grid;
+  grid-template-columns: 40px 1fr 40px;
+  align-items: center;
+  margin-bottom: 4px;
 }
 
 .popup-title {
-  font-weight: 700;
-  font-size: 17px;
-  letter-spacing: -0.01em;
+  grid-column: 2;
+  text-align: center;
+  font-weight: 650;
+  font-size: 15px;
 }
 
-.popup-sub {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--accent);
+.head-btn {
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  border: none;
+  border-radius: 50%;
+  background: none;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.head-btn[data-close] {
+  grid-column: 3;
+  justify-self: end;
+  background: var(--chip);
+}
+
+.head-btn svg,
+.stepper button svg {
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.head-btn.on svg {
+  fill: #fab005;
+  stroke: #fab005;
 }
 
 /* Stiftehalter: Stifte stehen nebeneinander, unten abgeschnitten.
@@ -286,18 +357,16 @@ body {
   display: flex;
   justify-content: space-around;
   align-items: flex-end;
-  height: 118px;
-  margin: 0 0 14px;
-  padding: 0 10px;
+  height: 124px;
+  margin: 0 -16px;
+  padding: 0 18px;
   overflow: hidden;
-  border-radius: 20px;
-  background: linear-gradient(to bottom, transparent 0%, var(--chip) 100%);
-  box-shadow: inset 0 -10px 18px -12px rgba(20, 30, 60, 0.25);
+  border-bottom: 1px solid var(--line);
 }
 
 .pen-slot {
   position: relative;
-  width: 56px;
+  width: 60px;
   height: 100%;
   padding: 0;
   border: none;
@@ -308,104 +377,292 @@ body {
 .pen-holder {
   position: absolute;
   left: 50%;
-  bottom: -46px;
-  width: 44px;
-  margin-left: -22px;
+  bottom: -58px;
+  width: 40px;
+  margin-left: -20px;
   transition: transform 0.35s cubic-bezier(0.2, 0.9, 0.3, 1.3), filter 0.2s;
-  filter: drop-shadow(0 4px 6px rgba(20, 30, 60, 0.18)) saturate(0.85);
+  filter: drop-shadow(0 3px 4px rgba(0, 0, 0, 0.25));
 }
 
 .pen-holder svg {
   display: block;
-  width: 44px;
+  width: 40px;
   height: auto;
 }
 
 .pen-slot.selected .pen-holder {
-  transform: translateY(-26px);
-  filter: drop-shadow(0 10px 12px rgba(20, 30, 60, 0.28));
+  transform: translateY(-30px);
+  filter: drop-shadow(0 10px 10px rgba(0, 0, 0, 0.3));
 }
 
-.pen-shelf.single .pen-slot.selected .pen-holder {
-  transform: translateY(-20px);
-}
-
-/* Schieberegler: dicke Spur, links gefüllt, großer runder Knopf */
-.size-row {
-  display: grid;
-  grid-template-columns: 44px 1fr 36px;
-  align-items: center;
-  gap: 10px;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--muted);
-}
-
-.size-row output {
-  text-align: right;
-  font-variant-numeric: tabular-nums;
-  color: var(--text);
-}
-
-input[type='range'] {
-  -webkit-appearance: none;
-  appearance: none;
-  width: 100%;
-  height: 28px;
-  margin: 0;
-  background: transparent;
-  --fill: 50%;
-}
-
-input[type='range']::-webkit-slider-runnable-track {
-  height: 8px;
-  border-radius: 4px;
-  background: linear-gradient(to right, var(--accent) var(--fill), var(--chip) var(--fill));
-  box-shadow: inset 0 0 0 1px rgba(20, 30, 60, 0.06);
-}
-
-input[type='range']::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  width: 24px;
-  height: 24px;
-  margin-top: -8px;
-  border-radius: 50%;
-  background: #fff;
-  box-shadow: 0 1px 3px rgba(20, 30, 60, 0.3), 0 0 0 4px color-mix(in srgb, var(--accent) 18%, transparent);
-}
-
-input[type='range']::-moz-range-track {
-  height: 8px;
-  border-radius: 4px;
-  background: linear-gradient(to right, var(--accent) var(--fill), var(--chip) var(--fill));
-}
-
-input[type='range']::-moz-range-thumb {
-  width: 24px;
-  height: 24px;
-  border: none;
-  border-radius: 50%;
-  background: #fff;
-  box-shadow: 0 1px 3px rgba(20, 30, 60, 0.3);
-}
-
-/* Vorschau der Linie – immer auf weißem "Papier", auch im Dunkelmodus */
+/* Vorschau der Linie */
 .preview {
   display: block;
   width: 100%;
-  height: 64px;
-  margin: 10px 0 14px;
+  height: 70px;
+  margin: 12px 0 8px;
   border-radius: 16px;
   background: #fff;
-  box-shadow: inset 0 0 0 1px rgba(20, 30, 60, 0.07);
+  box-shadow: inset 0 0 0 1px rgba(20, 30, 60, 0.08);
 }
 
-/* Umschalter "Farben | Palette" */
+/* Regler wie bei Samsung: − [ • • • (20) • • • ] + */
+.stepper {
+  display: grid;
+  grid-template-columns: 36px 1fr 36px;
+  align-items: center;
+  gap: 6px;
+  margin: 8px 0;
+  --t: 0.5;
+}
+
+.stepper button {
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  border: none;
+  border-radius: 50%;
+  background: none;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.stepper button:active {
+  background: var(--chip);
+}
+
+.st-track {
+  position: relative;
+  height: 34px;
+  border-radius: 17px;
+  background: var(--chip);
+  touch-action: none;
+  cursor: pointer;
+  /* kleine Punkte als Markierungen */
+  background-image: radial-gradient(circle, color-mix(in srgb, var(--text) 30%, transparent) 1.4px, transparent 1.6px);
+  background-size: calc((100% - 28px) / 10) 100%;
+  background-position: 14px 0;
+  background-repeat: repeat-x;
+  background-color: var(--chip);
+}
+
+/* Deckkraft-Regler: Schachbrett (= durchsichtig) bis volle Farbe */
+.st-track.opacity {
+  background-image: linear-gradient(to right, transparent, var(--c, #ffd400)),
+    repeating-conic-gradient(#8a8f99 0 25%, #c9cdd4 0 50%);
+  background-size: 100% 100%, 10px 10px;
+  background-position: 0 0, 0 0;
+  background-repeat: no-repeat, repeat;
+}
+
+.st-thumb {
+  position: absolute;
+  top: 3px;
+  left: calc(14px + var(--t) * (100% - 28px));
+  width: 28px;
+  height: 28px;
+  margin-left: -14px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #fff;
+  font-size: 11.5px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  box-shadow: 0 2px 6px rgba(20, 30, 60, 0.35);
+  pointer-events: none;
+}
+
+/* Schalter (wie in den Android-Einstellungen) */
+.switch-row small {
+  display: block;
+  margin-top: 1px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.switch-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 4px;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.switch {
+  -webkit-appearance: none;
+  appearance: none;
+  position: relative;
+  flex-shrink: 0;
+  width: 44px;
+  height: 26px;
+  margin: 0;
+  border-radius: 13px;
+  background: color-mix(in srgb, var(--muted) 45%, transparent);
+  transition: background 0.2s;
+  cursor: pointer;
+}
+
+.switch::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  transition: transform 0.2s cubic-bezier(0.3, 0.9, 0.3, 1.2);
+}
+
+.switch:checked {
+  background: var(--accent);
+}
+
+.switch:checked::after {
+  transform: translateX(18px);
+}
+
+/* Farbreihe: 8 Farben + Regenbogen */
+.color-row {
+  display: grid;
+  grid-template-columns: repeat(9, 1fr);
+  gap: 4px;
+  justify-items: center;
+  align-items: center;
+  min-height: 44px;
+  margin-top: 6px;
+  touch-action: pan-y;
+}
+
+.color-row .empty {
+  grid-column: 1 / 9;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+.swatch-btn,
+.rainbow {
+  position: relative;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: var(--c);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.12);
+  cursor: pointer;
+  transition: transform 0.15s;
+}
+
+.swatch-btn.light {
+  box-shadow: inset 0 0 0 1.5px #9aa0aa;
+}
+
+.swatch-btn:active,
+.rainbow:active {
+  transform: scale(0.88);
+}
+
+/* Ausgewählt: Häkchen in der Mitte (schwarz auf hellen Farben, weiß auf dunklen) */
+.swatch-btn.selected::after {
+  content: '';
+  position: absolute;
+  left: 11px;
+  top: 8px;
+  width: 7px;
+  height: 12px;
+  border: solid #fff;
+  border-width: 0 2.5px 2.5px 0;
+  transform: rotate(45deg);
+}
+
+.swatch-btn.light.selected::after {
+  border-color: #222;
+}
+
+.rainbow {
+  background: conic-gradient(#ff4d4d, #ffb31a, #ffe14d, #4dd964, #4dc3ff, #5a6bff, #c04dff, #ff4d4d);
+  box-shadow: none;
+}
+
+.rainbow::after {
+  content: '';
+  position: absolute;
+  inset: 7px;
+  border-radius: 50%;
+  background: radial-gradient(circle, #fff, rgba(255, 255, 255, 0));
+}
+
+.rainbow.selected {
+  box-shadow: 0 0 0 2px var(--glass-strong), 0 0 0 4px var(--accent);
+}
+
+/* Punkte unter den Farben = Farbseiten (die erste mit Uhr = zuletzt benutzt) */
+.page-dots {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.page-dots button {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border: none;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.page-dots button:not(:first-child)::before {
+  content: '';
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.45;
+}
+
+.page-dots button.selected {
+  color: var(--text);
+}
+
+.page-dots button.selected::before {
+  opacity: 1;
+}
+
+.page-dots svg {
+  width: 13px;
+  height: 13px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
+/* ---------- Farbpalette (Regenbogen-Knopf) ---------- */
+.picker {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
 .tabs {
   display: grid;
   grid-template-columns: 1fr 1fr;
   padding: 3px;
-  margin-bottom: 14px;
   border-radius: 14px;
   background: var(--chip);
 }
@@ -420,73 +677,47 @@ input[type='range']::-moz-range-thumb {
   padding: 7px;
   border-radius: 11px;
   cursor: pointer;
-  transition: background 0.2s, color 0.2s;
 }
 
 .tabs button.selected {
   background: var(--glass-strong);
   color: var(--text);
-  box-shadow: 0 1px 4px rgba(20, 30, 60, 0.12);
+  box-shadow: 0 1px 4px rgba(20, 30, 60, 0.15);
 }
 
-.swatches {
+/* Raster: 12 Spalten, ohne Lücken, außen rund */
+.cp-grid {
   display: grid;
-  grid-template-columns: repeat(6, 1fr);
-  gap: 12px 10px;
-  justify-items: center;
+  grid-template-columns: repeat(12, 1fr);
+  border-radius: 14px;
+  overflow: hidden;
+  box-shadow: 0 0 0 1px var(--line);
 }
 
-.swatch-btn {
-  position: relative;
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
-  border: none;
+.cp-grid button {
+  aspect-ratio: 1;
   padding: 0;
-  background: var(--c);
-  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.1), 0 2px 5px rgba(20, 30, 60, 0.12);
+  border: none;
   cursor: pointer;
-  transition: transform 0.15s;
 }
 
-.swatch-btn:active {
-  transform: scale(0.9);
+.cp-grid button.selected {
+  position: relative;
+  z-index: 1;
+  box-shadow: 0 0 0 2.5px #fff, 0 0 0 4px #000;
+  border-radius: 3px;
 }
 
-/* Ausgewählte Farbe: Ring außen herum und weißer Punkt in der Mitte */
-.swatch-btn.selected {
-  box-shadow: 0 0 0 3px var(--glass-strong), 0 0 0 5px var(--c);
-}
-
-.swatch-btn.selected::after {
-  content: '';
-  position: absolute;
-  inset: 13px;
-  border-radius: 50%;
-  background: #fff;
-  box-shadow: 0 0 2px rgba(0, 0, 0, 0.35);
-}
-
-.recent > span {
-  display: block;
-  margin: 14px 2px 8px;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--muted);
-}
-
-/* ---------- Farbpalette ---------- */
-.palette {
+.cp-spectrum {
   display: grid;
   gap: 12px;
 }
 
-/* Großes Feld: nach rechts mehr Farbe, nach unten dunkler.
-   Zwei Verläufe übereinander über der reinen Farbe des Farbtons. */
+/* Großes Feld: nach rechts mehr Farbe, nach unten dunkler */
 .cp-field {
   position: relative;
   height: 150px;
-  border-radius: 16px;
+  border-radius: 14px;
   background: linear-gradient(to top, #000, transparent), linear-gradient(to right, #fff, hsl(var(--hue, 0) 100% 50%));
   touch-action: none;
   cursor: crosshair;
@@ -494,8 +725,8 @@ input[type='range']::-moz-range-thumb {
 
 .cp-hue {
   position: relative;
-  height: 18px;
-  border-radius: 9px;
+  height: 22px;
+  border-radius: 11px;
   background: linear-gradient(to right, #f00, #ff0, #0f0, #0ff, #00f, #f0f, #f00);
   touch-action: none;
   cursor: pointer;
@@ -523,16 +754,16 @@ input[type='range']::-moz-range-thumb {
 }
 
 .cp-preview {
-  width: 36px;
-  height: 36px;
-  border-radius: 12px;
-  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.12);
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.15);
 }
 
 .cp-hex {
   flex: 1;
   min-width: 0;
-  padding: 9px 12px;
+  padding: 8px 12px;
   border: none;
   border-radius: 12px;
   background: var(--chip);
@@ -544,70 +775,60 @@ input[type='range']::-moz-range-thumb {
 }
 
 /* ---------- Radierer ---------- */
-.segmented {
+.radio-list {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px;
-  margin-bottom: 14px;
+  gap: 2px;
+  margin: 4px 0 6px;
 }
 
-.segmented button {
-  padding: 10px 10px 11px;
-  border: 1.5px solid transparent;
-  border-radius: 18px;
-  background: var(--chip);
+.radio-list button {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 6px;
+  border: none;
+  border-radius: 14px;
+  background: none;
   color: var(--text);
   font: inherit;
+  font-size: 15px;
   text-align: left;
   cursor: pointer;
-  transition: background 0.2s, border-color 0.2s;
 }
 
-.segmented svg {
-  display: block;
-  width: 48px;
-  height: 28px;
-  margin-bottom: 6px;
+.radio-list button:active {
+  background: var(--chip);
+}
+
+.radio-list svg {
+  width: 26px;
+  height: 26px;
   fill: none;
   stroke: currentColor;
-  stroke-width: 3;
+  stroke-width: 1.8;
   stroke-linecap: round;
 }
 
-.segmented svg .hole {
-  stroke-width: 1.5;
-  stroke-dasharray: 2 2;
-  fill: color-mix(in srgb, var(--accent) 15%, transparent);
-  stroke: var(--accent);
+.radio {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 2px solid var(--muted);
+  transition: border 0.15s;
 }
 
-.segmented b {
-  display: block;
-  font-size: 13.5px;
-  font-weight: 650;
-}
-
-.segmented small {
-  display: block;
-  margin-top: 2px;
-  font-size: 11.5px;
-  color: var(--muted);
-}
-
-.segmented button.selected {
-  border-color: var(--accent);
-  background: var(--accent-soft);
-  color: var(--accent);
+.radio-list .selected .radio {
+  border: 6.5px solid var(--accent);
 }
 
 .eraser-preview {
-  height: 112px;
-  margin: 10px 0 12px;
+  height: 104px;
+  margin: 6px 0;
   display: grid;
   place-items: center;
   border-radius: 16px;
   background: #fff;
-  box-shadow: inset 0 0 0 1px rgba(20, 30, 60, 0.07);
+  box-shadow: inset 0 0 0 1px rgba(20, 30, 60, 0.08);
 }
 
 .eraser-preview i {
@@ -619,10 +840,11 @@ input[type='range']::-moz-range-thumb {
 
 .danger-btn {
   width: 100%;
+  margin-top: 6px;
   padding: 12px;
   border: none;
   border-radius: 16px;
-  background: color-mix(in srgb, #e03131 10%, transparent);
+  background: color-mix(in srgb, #e03131 12%, transparent);
   color: #e03131;
   font: inherit;
   font-size: 14px;
@@ -635,14 +857,14 @@ input[type='range']::-moz-range-thumb {
   color: #fff;
 }
 
-/* ---------- Schnellmenü (Rad) ---------- */
+/* ---------- Schnellmenü (rund) ---------- */
 .wheel-backdrop {
   position: fixed;
   inset: 0;
   z-index: 20;
-  background: rgba(15, 20, 40, 0.12);
+  background: rgba(10, 14, 28, 0.08);
   touch-action: none;
-  animation: fade 0.2s ease-out;
+  animation: fade 0.18s ease-out;
 }
 
 @keyframes fade {
@@ -653,111 +875,214 @@ input[type='range']::-moz-range-thumb {
 
 .wheel {
   position: absolute;
-  width: 344px;
-  height: 344px;
-  margin: -172px 0 0 -172px;
-  animation: wheel-in 0.28s cubic-bezier(0.2, 0.9, 0.3, 1.25);
+  width: 280px;
+  height: 280px;
+  margin: -140px 0 0 -140px;
+  animation: wheel-in 0.26s cubic-bezier(0.2, 0.9, 0.3, 1.25);
 }
 
 @keyframes wheel-in {
   from {
     opacity: 0;
-    transform: scale(0.6) rotate(-25deg);
+    transform: scale(0.7);
   }
 }
 
-.wheel-glass {
+/* Die Scheibe ist im Hell- und Dunkelmodus dunkel – wie bei Samsung */
+.wheel-disc {
   position: absolute;
   inset: 0;
   border-radius: 50%;
-  background: var(--glass);
-  -webkit-backdrop-filter: blur(24px) saturate(1.8);
-  backdrop-filter: blur(24px) saturate(1.8);
-  border: 1px solid var(--glass-border);
-  box-shadow: var(--menu-shadow);
+  background: rgba(36, 38, 44, 0.97);
+  -webkit-backdrop-filter: blur(20px) saturate(1.6);
+  backdrop-filter: blur(20px) saturate(1.6);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.35), inset 0 0 0 1px rgba(255, 255, 255, 0.07);
 }
 
-.wheel-svg {
+.wheel-items {
   position: absolute;
   inset: 0;
-  width: 100%;
-  height: 100%;
-  overflow: visible;
+  animation: items-in 0.25s ease-out;
 }
 
-.wheel-seg {
-  cursor: pointer;
-  animation: seg-in 0.35s backwards;
-  animation-delay: calc(var(--i) * 25ms);
-}
-
-@keyframes seg-in {
+@keyframes items-in {
   from {
     opacity: 0;
+    transform: scale(0.9) rotate(-8deg);
   }
 }
 
-.wheel-seg .seg-bg {
-  fill: var(--chip);
-  transition: fill 0.15s;
+.wb {
+  position: absolute;
+  width: 48px;
+  height: 48px;
+  margin: -24px 0 0 -24px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: none;
+  color: #e8eaef;
+  cursor: pointer;
+  transition: background 0.15s, transform 0.15s;
 }
 
-.wheel-seg:hover .seg-bg {
-  fill: color-mix(in srgb, var(--accent) 22%, transparent);
+.wb:hover,
+.wb-pill:hover {
+  background: rgba(255, 255, 255, 0.12);
 }
 
-.wheel-seg.active .seg-bg {
-  fill: var(--accent-soft);
-  stroke: var(--accent);
-  stroke-width: 2;
+.wb:active {
+  transform: scale(0.9);
 }
 
-.wheel-icon {
+.wb svg,
+.wb-pill svg,
+.wheel-center.back svg,
+.big-icon svg {
+  width: 24px;
+  height: 24px;
   fill: none;
-  stroke: var(--text);
+  stroke: currentColor;
   stroke-width: 1.8;
   stroke-linecap: round;
   stroke-linejoin: round;
 }
 
-.wheel-seg.active .wheel-icon {
-  stroke: var(--accent);
+.wb.on {
+  background: rgba(123, 147, 255, 0.28);
+  color: #9fb1ff;
 }
 
-.wheel-color {
-  stroke: var(--glass-strong);
-  stroke-width: 3;
+/* Farbknöpfe */
+.wb.color::before {
+  content: '';
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--c);
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.85);
+}
+
+.wb.color.big::before {
+  width: 32px;
+  height: 32px;
+}
+
+.wb.color.on {
+  background: none;
+}
+
+.wb.color.on::before {
+  box-shadow: 0 0 0 2px rgba(36, 38, 44, 1), 0 0 0 4.5px #9fb1ff;
+}
+
+/* Stift-Knöpfe im Kreis: kleine Stifte */
+.wb.pen {
+  width: 54px;
+  height: 74px;
+  margin: -37px 0 0 -27px;
+  border-radius: 18px;
+}
+
+.wb.pen svg {
+  width: 22px;
+  height: 68px;
+  stroke: none;
+}
+
+.wb.pen > svg:not(.pen-art) {
+  width: 24px;
+  height: 24px;
+  stroke: currentColor;
+}
+
+.wheel-center {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 104px;
+  height: 104px;
+  margin: -52px 0 0 -52px;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: radial-gradient(circle at 50% 30%, #3a3d45, #24262c);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+  color: #e8eaef;
   cursor: pointer;
-  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.25));
-  transition: r 0.15s;
 }
 
-.wheel-color:hover {
-  r: 15;
+/* Großer Stift in der Mitte, unten angeschnitten */
+.wheel-center .pen-art {
+  width: 38px;
+  height: auto;
+  margin-top: 64px;
+  filter: drop-shadow(0 4px 6px rgba(0, 0, 0, 0.4));
 }
 
-.wheel-color.active {
-  stroke: var(--accent);
+.wheel-pill {
+  position: absolute;
+  left: 50%;
+  top: 232px;
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+  transform: translateX(-50%);
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.08);
 }
 
-.wheel-center circle:first-child {
-  fill: var(--glass-strong);
-  stroke: var(--glass-border);
+.wb-pill {
+  width: 40px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: none;
+  border-radius: 16px;
+  background: none;
+  color: #e8eaef;
   cursor: pointer;
 }
 
-.wheel-current {
-  stroke: var(--glass-strong);
-  stroke-width: 2;
+.wb-pill svg {
+  width: 19px;
+  height: 19px;
+}
+
+.wheel-empty {
+  position: absolute;
+  left: 50%;
+  top: 30px;
+  width: 200px;
+  margin: 0 0 0 -100px;
+  text-align: center;
+  color: #c3c7d0;
+  font-size: 12.5px;
+  line-height: 1.4;
+}
+
+/* Name des Knopfs unter dem Stift (oben über dem Rad) */
+.wheel-tip {
+  position: absolute;
+  transform: translate(-50%, -100%);
+  padding: 5px 12px;
+  border-radius: 12px;
+  background: rgba(36, 38, 44, 0.92);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
   pointer-events: none;
 }
 
-.wheel-label {
-  fill: var(--text);
-  font-size: 12px;
-  font-weight: 650;
-  text-anchor: middle;
-  pointer-events: none;
+.wheel-tip:empty {
+  display: none;
 }
 
 /* ---------- Zeichenfläche ---------- */
