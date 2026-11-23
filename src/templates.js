@@ -12,6 +12,7 @@
 // Also ist 1 mm = 1000 / 210 ≈ 4,76 Einheiten.
 
 import { PAGE_WIDTH, PAGE_HEIGHT } from './view.js';
+import { drawBackground } from './media.js';
 
 export const MM = PAGE_WIDTH / 210;
 
@@ -271,7 +272,8 @@ function holes({ ctx }, color) {
 //   faint    Linien heller malen (bei ganz kleinen Bildern sonst nur grauer Brei)
 //   strokes  Striche der Seite, fill = Funktion, die einen Strich malt
 //   width    Breite in echten Pixeln (Standard: so breit, wie das Canvas angezeigt wird)
-export function drawThumbnail(canvas, tpl, { dark = false, crop = 1, faint = false, strokes = [], fill = null, width = 0 } = {}) {
+//   bg       PDF-Hintergrund der Seite (page.bg), falls es einen gibt
+export function drawThumbnail(canvas, tpl, { dark = false, crop = 1, faint = false, strokes = [], fill = null, width = 0, bg = null } = {}) {
   const dpr = window.devicePixelRatio || 1;
   const w = width || Math.max(1, Math.round((canvas.clientWidth || 80) * dpr));
   const h = Math.round((w * PAGE_HEIGHT) / PAGE_WIDTH);
@@ -283,6 +285,7 @@ export function drawThumbnail(canvas, tpl, { dark = false, crop = 1, faint = fal
   ctx.fillStyle = paperColor(tpl.paper, dark);
   ctx.fillRect(0, 0, w, h);
   ctx.setTransform(s, 0, 0, s, 0, 0);
+  if (bg) drawBackground(ctx, { bg }, dark);
   ctx.globalAlpha = faint ? 0.5 : 1;
   drawTemplate(ctx, tpl, { x0: 0, y0: 0, x1: PAGE_WIDTH * crop, y1: PAGE_HEIGHT * crop }, s, dark);
   ctx.globalAlpha = 1;

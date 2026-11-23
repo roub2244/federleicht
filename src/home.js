@@ -46,6 +46,7 @@ const ICON = {
   backup: '<svg viewBox="0 0 24 24"><path d="M12 3v12M7.5 10.5 12 15l4.5-4.5"/><path d="M4.5 15.5v3a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2v-3"/></svg>',
   upload: '<svg viewBox="0 0 24 24"><path d="M12 15V3M7.5 7.5 12 3l4.5 4.5"/><path d="M4.5 15.5v3a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2v-3"/></svg>',
   close: '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg>',
+  pdf: '<svg viewBox="0 0 24 24"><path d="M14 3.5H7a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8.5z"/><path d="M14 3.5v5h5"/><path d="M12 11v6M9.5 14.5 12 17l2.5-2.5"/></svg>',
 };
 
 export function setupHome(api) {
@@ -78,6 +79,7 @@ export function setupHome(api) {
         </div>
         <label class="h-search">${ICON.search}<input type="search" placeholder="Notizen suchen" autocomplete="off" /></label>
         <button class="h-icon" data-act="sort" aria-label="Sortieren" title="Sortieren">${ICON.sort}</button>
+        <button class="h-chip h-pdf" data-act="import-pdf" title="PDF öffnen und darauf schreiben">${ICON.pdf}<span>PDF öffnen</span></button>
         <button class="h-chip" data-act="empty-trash" hidden>Papierkorb leeren</button>
       </header>
       <div class="h-scroll">
@@ -93,6 +95,18 @@ export function setupHome(api) {
   const empty = root.querySelector('.h-empty');
   const pop = root.querySelector('.h-menu-pop');
   const searchInput = root.querySelector('.h-search input');
+
+  // PDF öffnen: wird eine neue Notiz (im gerade offenen Ordner), auf deren Seiten man schreiben kann
+  const pdfInput = document.createElement('input');
+  pdfInput.type = 'file';
+  pdfInput.accept = 'application/pdf,.pdf';
+  pdfInput.hidden = true;
+  root.appendChild(pdfInput);
+  pdfInput.addEventListener('change', () => {
+    const file = pdfInput.files[0];
+    pdfInput.value = '';
+    if (file) api.createNoteFromPdf(file, filter.kind === 'folder' ? filter.id : null);
+  });
 
   // ---------- Daten laden ----------
   async function reload() {
@@ -143,6 +157,7 @@ export function setupHome(api) {
     root.querySelector('.h-count').textContent = `${list.length} ${list.length === 1 ? 'Notiz' : 'Notizen'}`;
     root.querySelector('[data-act="empty-trash"]').hidden = filter.kind !== 'trash' || list.length === 0;
     root.querySelector('[data-act="new"]').hidden = filter.kind === 'trash';
+    root.querySelector('[data-act="import-pdf"]').hidden = filter.kind === 'trash';
     root.classList.toggle('drawer-open', drawerOpen);
 
     grid.innerHTML = list
@@ -241,6 +256,7 @@ export function setupHome(api) {
       return render();
     }
     if (act === 'new') return api.createNote(filter.kind === 'folder' ? filter.id : null);
+    if (act === 'import-pdf') return pdfInput.click();
     if (act === 'new-folder') return newFolder();
     if (act === 'sort') return openSortMenu(t.closest('button'));
     if (act === 'backup') return openBackupMenu(t.closest('button'));
@@ -452,6 +468,7 @@ export function setupHome(api) {
     await store.deleteNoteForever(note);
     notes = notes.filter((n) => n !== note);
     render();
+    store.cleanupBlobs().catch(() => {}); // Bilder/PDFs der Notiz wegräumen
   }
 
   async function emptyTrash() {
@@ -466,6 +483,7 @@ export function setupHome(api) {
     for (const n of list) await store.deleteNoteForever(n);
     notes = notes.filter((n) => !n.deletedAt);
     render();
+    store.cleanupBlobs().catch(() => {});
   }
 
   async function newFolder(open = true) {
