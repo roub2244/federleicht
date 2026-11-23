@@ -99,7 +99,8 @@ export function setupInput(canvas, app) {
   // Event -> Punkt auf der Seite: [x, y, druck]
   const pagePoint = (ev) => {
     const [x, y] = app.view.toPage(...screenPos(ev));
-    const pressure = ev.pointerType === 'pen' && ev.pressure > 0 ? ev.pressure : 0.5;
+    // Beim Stift zählt der echte Druck – auch 0 (dann liegt er nur noch ganz leicht auf, siehe lift.js)
+    const pressure = ev.pointerType === 'pen' ? ev.pressure : 0.5;
     return [x, y, pressure];
   };
 
