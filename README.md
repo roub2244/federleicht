@@ -10,14 +10,19 @@ Was schon geht:
 - **Stiftknopf gedrückt halten = Radierer** (löscht ganze Striche, ein blauer Kreis zeigt den Radierer).
   Wichtig: Den Knopf **vor** dem Aufsetzen drücken. Der blaue Kreis erscheint schon beim Schweben, dann weißt du, dass der Radierer bereit ist.
 - **Knopf kurz klicken (beim Schweben) = Radierer bleibt an**, bis du wieder klickst. In der Werkzeugleiste ist dann der Radierer gewählt.
-- **Werkzeugleiste oben:** Stift, Textmarker, Radierer. **Aktives Werkzeug nochmal antippen** öffnet die Einstellungen:
-  - Stift: Art (Füller, Kugelschreiber, Filzstift, Pinsel) mit Stift-Bildern, Dicke, Farben oder freie **Palette**
-  - Textmarker: Dicke, Farben oder Palette. Zuletzt benutzte Palettenfarben erscheinen unter „Zuletzt“. Er färbt wie echter Marker: Schrift darunter bleibt lesbar.
-  - Radierer: **Strich löschen** (ganzer Strich) oder **Bereich löschen** (nur wo du radierst), Größe, „Seite leeren“.
-    Der Stiftknopf benutzt dieselben Radierer-Einstellungen.
-  - Daneben tippen schließt das Popup, ohne zu zeichnen. Deine Einstellungen werden gemerkt.
-- **Schnellmenü (Rad):** Stiftknopf **in der Luft** etwa 0,7 Sekunden gedrückt halten, ohne aufzusetzen.
-  Im Rad wählst du Stiftart, Textmarker, Radierer, Farbe, Rückgängig und Wiederholen. Daneben tippen schließt es, ohne zu malen.
+- **Werkzeugleiste oben:** Stift, Textmarker, Radierer und bis zu 5 **Lieblingsstifte**. **Aktives Werkzeug nochmal antippen** öffnet die Einstellungen.
+- **5 Stiftarten**, die sich deutlich unterscheiden. Jede merkt sich ihre eigene Farbe und Dicke:
+  - **Kugelschreiber** (Standard): dünn und gleichmäßig, Druck ändert fast nichts
+  - **Füller**: Druck macht ihn deutlich dicker, schräge Feder (Abstriche dick, Aufstriche haarfein), weiche Enden
+  - **Filzstift**: kräftig, gleich breit, leicht weicher Rand
+  - **Pinsel**: leicht = haarfein, fest = sehr breit, spitze Enden, durchscheinender Rand
+  - **Textmarker**: breit, durchsichtig (Deckkraft einstellbar), gerade Enden, wird beim Übermalen nicht dunkler
+- **Farben:** Farbseiten wie bei Samsung Notes (Punkte unter der Reihe oder wischen), inkl. Weiß und Schwarz.
+  Der Regenbogen öffnet ein **Farbraster** (einfach antippen) oder das **Spektrum**. Eigene Farben landen unter der Uhr („Zuletzt“).
+- **Favoriten:** Stern im Stift-Menü legt den aktuellen Stift oben in die Leiste. Lange drücken entfernt ihn.
+- **Radierer:** „Strich löschen“ oder „Bereich löschen“, Größe, „Nur Textmarker löschen“, „Seite leeren“.
+- **Schnellmenü:** Stiftknopf **in der Luft** etwa 0,7 Sekunden halten. Mitte = Stift wechseln, oben Rückgängig/Wiederholen,
+  rechts Farbe, links Radierer, unten Favoriten und Stifte. Daneben tippen schließt es, ohne zu malen.
 - **Rückgängig / Wiederholen** (Pfeile oben links, am PC auch Strg+Z / Strg+Y). Auch „Seite leeren“ kann man rückgängig machen.
 - **Gerade Linien:** Strich ziehen und den Stift am Ende kurz stillhalten (etwa eine halbe Sekunde).
   Dann wird daraus eine gerade Strecke vom Anfang bis zum Ende. Solange die Spitze unten bleibt, kannst du das Ende noch verschieben.
@@ -70,7 +75,7 @@ npm run preview    # zeigt die fertige Version an (mit Service Worker)
 | `src/tools.js` | Die Werkzeuge: Farben, Stiftarten, Standard-Einstellungen, Speichern im Browser |
 | `src/toolbar.js` | Die Werkzeugleiste und die Einstellungs-Popups |
 | `src/pens.js` | Die gezeichneten Stift-Bilder (SVG) für Popup und Schnellmenü |
-| `src/colorpicker.js` | Die Farbpalette (Farbton-Balken + Farbfeld, HEX-Eingabe) |
+| `src/colorpicker.js` | Farbraster und Spektrum (Farbton-Balken + Farbfeld, HEX-Eingabe) |
 | `src/wheel.js` | Das Schnellmenü-Rad |
 | `src/history.js` | Rückgängig und Wiederholen mit zwei Stapeln |
 | `src/input.js` | **Das Herz für den S Pen.** Unterscheidet Stift, Finger und Handballen und erkennt den Stiftknopf |

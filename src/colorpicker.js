@@ -31,13 +31,70 @@ export function hexToHsv(hex) {
   return { h: (h + 360) % 360, s: max ? d / max : 0, v: max };
 }
 
+// Das Farbraster: oben Grautöne von Weiß bis Schwarz, darunter 12 Farbtöne
+// in 7 Helligkeitsstufen. Einfach antippen – kein Mischen nötig.
+function gridColors() {
+  const rows = [];
+  const grays = [];
+  for (let i = 0; i < 12; i++) {
+    const v = Math.round(255 - (255 * i) / 11);
+    grays.push('#' + v.toString(16).padStart(2, '0').repeat(3));
+  }
+  rows.push(grays);
+  const levels = [0.88, 0.76, 0.62, 0.5, 0.4, 0.3, 0.2]; // Helligkeit von hell nach dunkel
+  for (const l of levels) {
+    const row = [];
+    for (let i = 0; i < 12; i++) row.push(hslToHex(i * 30, 0.85, l));
+    rows.push(row);
+  }
+  return rows;
+}
+
+function hslToHex(h, s, l) {
+  const a = s * Math.min(l, 1 - l);
+  const f = (n) => {
+    const k = (n + h / 30) % 12;
+    return l - a * Math.max(-1, Math.min(k - 3, 9 - k, 1));
+  };
+  return '#' + [f(0), f(8), f(4)].map((x) => Math.round(x * 255).toString(16).padStart(2, '0')).join('');
+}
+
 // Baut die Palette in "container" ein. onChange(hex) wird beim Ziehen laufend aufgerufen,
 // onCommit(hex) einmal am Ende (Stift/Finger losgelassen) – dann merken wir uns die Farbe.
 export function createColorPicker(container, initialHex, onChange, onCommit) {
   container.innerHTML = `
-    <div class="cp-field"><div class="cp-thumb"></div></div>
-    <div class="cp-hue"><div class="cp-thumb"></div></div>
+    <div class="tabs cp-tabs"><button data-cp="grid">Raster</button><button data-cp="spectrum">Spektrum</button></div>
+    <div class="cp-grid" data-cp-panel="grid">
+      ${gridColors()
+        .map((row) => row.map((c) => `<button data-grid="${c}" style="background:${c}" aria-label="${c}"></button>`).join(''))
+        .join('')}
+    </div>
+    <div class="cp-spectrum" data-cp-panel="spectrum">
+      <div class="cp-field"><div class="cp-thumb"></div></div>
+      <div class="cp-hue"><div class="cp-thumb"></div></div>
+    </div>
     <div class="cp-info"><i class="cp-preview"></i><input class="cp-hex" maxlength="7" spellcheck="false" /></div>`;
+
+  // Umschalten zwischen Raster und Spektrum
+  let mode = 'grid';
+  function showMode() {
+    for (const b of container.querySelectorAll('[data-cp]')) b.classList.toggle('selected', b.dataset.cp === mode);
+    for (const p of container.querySelectorAll('[data-cp-panel]')) p.hidden = p.dataset.cpPanel !== mode;
+  }
+  container.addEventListener('click', (e) => {
+    const tab = e.target.closest('[data-cp]');
+    if (tab) {
+      mode = tab.dataset.cp;
+      showMode();
+    }
+    const cell = e.target.closest('[data-grid]');
+    if (cell) {
+      hsv = hexToHsv(cell.dataset.grid);
+      onChange(render(cell.dataset.grid));
+      onCommit(cell.dataset.grid);
+    }
+  });
+  showMode();
   const field = container.querySelector('.cp-field');
   const hue = container.querySelector('.cp-hue');
   const preview = container.querySelector('.cp-preview');
@@ -45,8 +102,9 @@ export function createColorPicker(container, initialHex, onChange, onCommit) {
 
   let hsv = hexToHsv(initialHex);
 
-  function render() {
-    const hex = hsvToHex(hsv.h, hsv.s, hsv.v);
+  // exact: genau diese HEX-Farbe anzeigen (Umrechnen nach HSV und zurück kann um 1 daneben liegen)
+  function render(exact) {
+    const hex = exact || hsvToHex(hsv.h, hsv.s, hsv.v);
     field.style.setProperty('--hue', hsv.h);
     field.firstElementChild.style.left = `${hsv.s * 100}%`;
     field.firstElementChild.style.top = `${(1 - hsv.v) * 100}%`;
@@ -54,6 +112,7 @@ export function createColorPicker(container, initialHex, onChange, onCommit) {
     hue.firstElementChild.style.left = `${(hsv.h / 360) * 100}%`;
     hue.firstElementChild.style.background = `hsl(${hsv.h} 100% 50%)`;
     preview.style.background = hex;
+    for (const cell of container.querySelectorAll('[data-grid]')) cell.classList.toggle('selected', cell.dataset.grid === hex);
     if (document.activeElement !== hexInput) hexInput.value = hex;
     return hex;
   }
@@ -96,17 +155,18 @@ export function createColorPicker(container, initialHex, onChange, onCommit) {
   hexInput.addEventListener('input', () => {
     const value = hexInput.value.trim();
     if (/^#?[0-9a-f]{6}$/i.test(value)) {
-      hsv = hexToHsv(value.startsWith('#') ? value : '#' + value);
-      onChange(render());
-      onCommit(hsvToHex(hsv.h, hsv.s, hsv.v));
+      const hex = (value.startsWith('#') ? value : '#' + value).toLowerCase();
+      hsv = hexToHsv(hex);
+      onChange(render(hex));
+      onCommit(hex);
     }
   });
 
-  render();
+  render(initialHex);
   return {
     set(hex) {
       hsv = hexToHsv(hex);
-      render();
+      render(hex);
     },
   };
 }

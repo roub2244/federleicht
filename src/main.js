@@ -7,7 +7,7 @@ import { setupInput } from './input.js';
 import { Debug } from './debug.js';
 import { HoldDetector, linePoints, averagePressure, longEnough } from './straighten.js';
 import { History } from './history.js';
-import { loadTools, saveTools } from './tools.js';
+import { loadTools, saveTools, activeStyle, settingsOf } from './tools.js';
 import { setupToolbar } from './toolbar.js';
 import { setupWheel } from './wheel.js';
 
@@ -48,19 +48,19 @@ const app = {
   debug,
 
   startStroke(point, pointerType) {
-    // Radierer gewählt, aber trotzdem gezeichnet (z. B. Maus)? Dann mit dem Stift.
-    const tool = tools.tool === 'highlighter' ? 'highlighter' : 'pen';
-    const settings = tools[tool];
+    // Die Einstellungen des aktuellen Stifts (beim Radierer: der Stift davor)
+    const style = activeStyle(tools);
     current = createStroke({
-      tool,
-      penType: tool === 'highlighter' ? 'highlighter' : settings.type,
-      color: settings.color,
-      size: settings.size,
+      tool: style.type === 'highlighter' ? 'highlighter' : 'pen',
+      penType: style.type,
+      color: style.color,
+      size: style.size,
+      opacity: style.opacity,
       simulatePressure: pointerType !== 'pen',
       z: nextZ++,
     });
     current.points.push(point);
-    hold.moved(point, view.scale);
+    if (tools.straighten) hold.moved(point, view.scale);
     drawCurrentStroke([]);
   },
 
@@ -76,7 +76,7 @@ const app = {
     }
 
     current.points.push(...points);
-    hold.moved(last, view.scale);
+    if (tools.straighten) hold.moved(last, view.scale);
     drawCurrentStroke(predicted);
   },
 
@@ -171,7 +171,8 @@ const app = {
 
 // Den Strich, der gerade entsteht, sofort anzeigen
 function drawCurrentStroke(predicted) {
-  const { path, box } = buildPath(current, predicted, false);
+  const built = buildPath(current, predicted, false);
+  const { box } = built;
   if (!box) return;
   const [x0, y0] = view.toScreen(box.minX, box.minY);
   const [x1, y1] = view.toScreen(box.maxX, box.maxY);
@@ -181,7 +182,7 @@ function drawCurrentStroke(predicted) {
     draw(ctx, rend) {
       rend.applyView(ctx);
       rend.clipToPage(ctx);
-      fillStroke(ctx, stroke, path);
+      fillStroke(ctx, stroke, built);
     },
   });
 }
@@ -208,6 +209,7 @@ function eraseAt(x, y) {
   let area = null; // Bereich, in dem sich etwas geändert hat
   for (let i = strokes.length - 1; i >= 0; i--) {
     const stroke = strokes[i];
+    if (tools.eraser.onlyHighlighter && stroke.tool !== 'highlighter') continue;
     if (!strokeHit(stroke, x, y, r)) continue;
 
     let pieces = [];
@@ -310,20 +312,22 @@ input.setStickyEraser(tools.tool === 'eraser');
 // ---------- Schnellmenü (Rad) ----------
 const wheel = setupWheel({
   tools,
-  onPick({ kind, id }) {
-    if (kind === 'type') {
-      tools.pen.type = id;
-      toolbar.setTool('pen');
-    } else if (kind === 'tool') {
-      toolbar.setTool(id);
-    } else if (kind === 'color') {
-      // Farbe gilt für Stift oder Textmarker. War der Radierer an, geht's zurück zum Stift.
+  onPick({ act, id }) {
+    if (act === 'undo') undo();
+    else if (act === 'redo') redo();
+    else if (act === 'eraser') toolbar.setTool(tools.tool === 'eraser' ? toolBeforeEraser : 'eraser');
+    else if (act === 'pen') {
+      if (id === 'eraser' || id === 'highlighter') toolbar.setTool(id);
+      else {
+        tools.penType = id;
+        toolbar.setTool('pen');
+      }
+    } else if (act === 'color') {
+      // Farbe gilt für den aktuellen Stift. War der Radierer an, geht's zurück zum Stift.
       if (tools.tool === 'eraser') toolbar.setTool(toolBeforeEraser);
-      tools[tools.tool].color = id;
-    } else if (id === 'undo') {
-      undo();
-    } else if (id === 'redo') {
-      redo();
+      settingsOf(tools, activeStyle(tools).type).color = id;
+    } else if (act === 'fav') {
+      toolbar.applyFavorite(tools.favorites[Number(id)]);
     }
     saveTools(tools);
     toolbar.update();

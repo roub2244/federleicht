@@ -1,53 +1,67 @@
 // tools.js – die Werkzeuge und ihre Einstellungen
 //
-// Alles, was du in der Werkzeugleiste einstellst, steht in EINEM Objekt ("tools").
-// Es wird im Browser gespeichert (localStorage), damit beim nächsten Öffnen
-// wieder dein Lieblingsstift ausgewählt ist.
+// Alles, was du einstellst, steht in EINEM Objekt ("tools") und wird im Browser
+// gespeichert (localStorage). Jede Stiftart merkt sich ihre eigene Farbe und Dicke.
 
-export const PEN_COLORS = [
-  '#1f2a44', // Tinte (dunkelblau)
-  '#000000', // Schwarz
-  '#868e96', // Grau
-  '#e03131', // Rot
-  '#f76707', // Orange
-  '#2f9e44', // Grün
-  '#1971c2', // Blau
-  '#6741d9', // Violett
-  '#c2255c', // Pink
-  '#8d5524', // Braun
-];
-
-export const HIGHLIGHTER_COLORS = [
-  '#ffe066', // Gelb
-  '#8ce99a', // Grün
-  '#74c0fc', // Blau
-  '#faa2c1', // Pink
-  '#ffc078', // Orange
-  '#b197fc', // Violett
-];
-
+// Die Stiftarten in der Reihenfolge, wie sie im Stifthalter stehen
 export const PEN_TYPES = [
-  { id: 'fountain', name: 'Füller' },
   { id: 'ballpoint', name: 'Kugelschreiber' },
+  { id: 'fountain', name: 'Füller' },
   { id: 'felt', name: 'Filzstift' },
   { id: 'brush', name: 'Pinsel' },
 ];
 
-// Grenzen für die Schieberegler
+// Farb-Seiten (wie in Samsung Notes: Punkte unter der Farbreihe wechseln die Seite)
+export const COLOR_PAGES = [
+  // Grundfarben – inkl. Weiß und Schwarz
+  ['#000000', '#ffffff', '#e03131', '#f08c00', '#fab005', '#2f9e44', '#1971c2', '#7048e8'],
+  // Tinten-Töne
+  ['#1f2a44', '#495057', '#868e96', '#c2255c', '#0c8599', '#5c940d', '#8d5524', '#e8590c'],
+  // Pastell
+  ['#ffa8a8', '#ffd8a8', '#ffec99', '#b2f2bb', '#a5d8ff', '#d0bfff', '#fcc2d7', '#dee2e6'],
+];
+
+export const HIGHLIGHTER_COLORS = [
+  '#ffd400', // Gelb
+  '#51cf66', // Grün
+  '#f06595', // Pink
+  '#339af0', // Blau
+  '#ff922b', // Orange
+  '#9775fa', // Violett
+  '#ff6b6b', // Rot
+  '#20c997', // Türkis
+];
+
+// Dicke: kleinster und größter Wert (in Seiten-Einheiten, die Seite ist 1000 breit)
 export const SIZE_RANGE = {
-  pen: { min: 1, max: 14, step: 0.2 },        // Seiten-Einheiten (Seite ist 1000 breit)
-  highlighter: { min: 8, max: 40, step: 1 },
-  eraser: { min: 6, max: 50, step: 1 },       // Bildschirm-Pixel (Radius)
+  ballpoint: { min: 0.8, max: 6 },
+  fountain: { min: 1.5, max: 10 },
+  felt: { min: 2.5, max: 16 },
+  brush: { min: 4, max: 32 },
+  highlighter: { min: 8, max: 44 },
+  eraser: { min: 6, max: 50 }, // Bildschirm-Pixel (Radius)
 };
+
+export const MAX_FAVORITES = 5;
+const MAX_RECENT = 8;
 
 const DEFAULTS = {
-  tool: 'pen', // 'pen' | 'highlighter' | 'eraser'
-  pen: { type: 'fountain', color: '#1f2a44', size: 3.2, recent: [] },
-  highlighter: { color: '#ffe066', size: 18, recent: [] },
-  eraser: { mode: 'stroke', size: 12 }, // mode: 'stroke' (ganzer Strich) | 'area' (Bereich)
+  tool: 'pen',            // 'pen' | 'highlighter' | 'eraser'
+  penType: 'ballpoint',   // Kuli ist der Standard-Stift
+  pens: {
+    ballpoint: { color: '#000000', size: 1.8 },
+    fountain: { color: '#1f2a44', size: 3.6 },
+    felt: { color: '#1971c2', size: 6 },
+    brush: { color: '#e03131', size: 12 },
+  },
+  highlighter: { color: '#ffd400', size: 20, opacity: 0.45 },
+  eraser: { mode: 'stroke', size: 12, onlyHighlighter: false },
+  straighten: true,       // gerade Linien durch Stillhalten am Strichende
+  recent: [],             // zuletzt benutzte eigene Farben
+  favorites: [],          // Lieblingsstifte: { type, color, size, opacity? }
 };
 
-const KEY = 'federleicht.tools';
+const KEY = 'federleicht.tools.v2';
 
 // Gespeicherte Einstellungen laden. Fehlt etwas (z. B. nach einem Update), nehmen wir den Standard.
 export function loadTools() {
@@ -57,11 +71,18 @@ export function loadTools() {
   } catch {
     /* nichts gespeichert oder kaputt -> Standard */
   }
+  const pens = {};
+  for (const { id } of PEN_TYPES) pens[id] = { ...DEFAULTS.pens[id], ...saved.pens?.[id] };
   return {
+    ...DEFAULTS,
+    ...saved,
     tool: ['pen', 'highlighter', 'eraser'].includes(saved.tool) ? saved.tool : DEFAULTS.tool,
-    pen: { ...DEFAULTS.pen, ...saved.pen },
+    penType: pens[saved.penType] ? saved.penType : DEFAULTS.penType,
+    pens,
     highlighter: { ...DEFAULTS.highlighter, ...saved.highlighter },
     eraser: { ...DEFAULTS.eraser, ...saved.eraser },
+    recent: Array.isArray(saved.recent) ? saved.recent : [],
+    favorites: Array.isArray(saved.favorites) ? saved.favorites : [],
   };
 }
 
@@ -71,4 +92,28 @@ export function saveTools(tools) {
   } catch {
     /* egal – dann eben nicht gemerkt */
   }
+}
+
+// Die Einstellungen des gerade benutzten Stifts (Stiftart oder Textmarker).
+// Ist der Radierer an, nehmen wir den Stift, den man davor hatte.
+export function activeStyle(tools) {
+  if (tools.tool === 'highlighter') return { type: 'highlighter', ...tools.highlighter };
+  return { type: tools.penType, ...tools.pens[tools.penType] };
+}
+
+// Das Einstellungs-Objekt zu einer Stiftart ('highlighter' oder eine aus PEN_TYPES)
+export function settingsOf(tools, type) {
+  return type === 'highlighter' ? tools.highlighter : tools.pens[type];
+}
+
+// Eine eigene Farbe vorne in "Zuletzt" aufnehmen (ohne Doppelte)
+export function rememberColor(tools, color) {
+  tools.recent = [color, ...tools.recent.filter((c) => c !== color)].slice(0, MAX_RECENT);
+}
+
+// Ist dieser Favorit genau der Stift, der gerade eingestellt ist?
+export function isActiveFavorite(tools, fav) {
+  if (tools.tool === 'eraser') return false;
+  const s = activeStyle(tools);
+  return fav.type === s.type && fav.color === s.color && Math.abs(fav.size - s.size) < 0.01;
 }
