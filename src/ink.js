@@ -143,27 +143,80 @@ export function finishStroke(stroke) {
   return stroke;
 }
 
-// Farbe mit Weiß mischen: so sieht der Textmarker auf weißem Papier aus.
-// opacity 1 = volle Farbe, 0 = weiß
-export function highlighterColor(hex, opacity) {
+// ---------- Helles oder dunkles Blatt ----------
+// Der Renderer stellt das vor dem Malen jeder Seite ein:
+//   dark   dunkles Blatt (Dunkelmodus)
+//   paper  Farbe des Blatts (zum Mischen für den Textmarker)
+export const inkTheme = { dark: false, paper: '#ffffff' };
+
+export function setInkTheme(dark, paper) {
+  inkTheme.dark = dark;
+  inkTheme.paper = paper;
+}
+
+const rgbOf = (hex) => {
   const n = parseInt(hex.slice(1), 16);
-  const mix = (c) => Math.round(255 - (255 - c) * opacity);
-  return `rgb(${mix((n >> 16) & 255)}, ${mix((n >> 8) & 255)}, ${mix(n & 255)})`;
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+};
+const hexOf = (r, g, b) => '#' + ((1 << 24) | (r << 16) | (g << 8) | b).toString(16).slice(1);
+
+// Auf dem dunklen Blatt: Schwarz wird Weiß und Weiß wird Schwarz – wie bei Samsung Notes.
+// Graue Farben werden umgedreht, sehr dunkle bunte Farben etwas aufgehellt,
+// alle anderen Farben bleiben genau so, wie du sie ausgesucht hast.
+const darkCache = new Map();
+export function displayColor(hex) {
+  if (!inkTheme.dark || !hex || hex[0] !== '#' || hex.length !== 7) return hex;
+  let out = darkCache.get(hex);
+  if (out) return out;
+  const [r, g, b] = rgbOf(hex);
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const light = (max + min) / 2;
+  if (max - min < 28) {
+    // Grau (auch Schwarz und Weiß): Helligkeit umdrehen
+    const v = Math.round(Math.min(255, Math.max(0, 238 - light * 0.88)));
+    const shift = (c) => Math.min(255, Math.max(0, v + (c - light) * 0.5));
+    out = hexOf(shift(r), shift(g), shift(b));
+  } else if (light < 70) {
+    // Sehr dunkle Farbe (z. B. Dunkelblau) wäre auf dunklem Papier kaum zu sehen: aufhellen
+    const t = (70 - light) / 70 * 0.55;
+    out = hexOf(...[r, g, b].map((c) => Math.round(c + (255 - c) * t)));
+  } else {
+    out = hex;
+  }
+  darkCache.set(hex, out);
+  return out;
+}
+
+// Textmarker-Farbe: so sieht der Marker auf dem Papier aus.
+// opacity 1 = volle Farbe, 0 = Papierfarbe
+export function highlighterColor(hex, opacity, paper = '#ffffff') {
+  const [r, g, b] = rgbOf(hex);
+  const [pr, pg, pb] = rgbOf(paper);
+  const mix = (c, p) => Math.round(p + (c - p) * opacity);
+  return `rgb(${mix(r, pr)}, ${mix(g, pg)}, ${mix(b, pb)})`;
 }
 
 // Einen Strich auf einen Zeichen-Kontext malen. built = Ergebnis von buildPath (Standard: der fertige Strich)
 //
-// Der Textmarker malt mit "darken" (abdunkeln): Pro Farbkanal gewinnt der dunklere Wert.
+// Der Textmarker malt auf hellem Papier mit "darken" (abdunkeln): Pro Farbkanal gewinnt der dunklere Wert.
 //  - Schrift darunter ist dunkler -> bleibt genau so sichtbar
 //  - zweimal derselbe Marker übereinander -> gleich dunkel, wird NICHT dunkler (wie gewünscht)
+// Auf dunklem Papier ist es genau andersherum: "lighten" (aufhellen) – die helle Schrift bleibt oben.
 export function fillStroke(ctx, stroke, built = stroke) {
   if (!built.layers) return;
   ctx.save();
   if (stroke.tool === 'highlighter') {
-    ctx.globalCompositeOperation = 'darken';
-    ctx.fillStyle = highlighterColor(stroke.color, stroke.opacity ?? 0.45);
+    const opacity = stroke.opacity ?? 0.45;
+    if (inkTheme.dark) {
+      ctx.globalCompositeOperation = 'lighten';
+      ctx.fillStyle = highlighterColor(stroke.color, 0.3 + opacity * 0.7, inkTheme.paper); // auf Dunkel etwas kräftiger
+    } else {
+      ctx.globalCompositeOperation = 'darken';
+      ctx.fillStyle = highlighterColor(stroke.color, opacity, inkTheme.paper);
+    }
   } else {
-    ctx.fillStyle = stroke.color;
+    ctx.fillStyle = displayColor(stroke.color);
   }
   for (const layer of built.layers) {
     ctx.globalAlpha = layer.alpha;

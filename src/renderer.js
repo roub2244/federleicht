@@ -5,15 +5,20 @@
 //  2. Während du schreibst, kopieren wir nur das kleine Stück vom Zwischenbild,
 //     wo sich etwas ändert, und malen den aktuellen Strich darüber.
 //  So muss pro Stiftbewegung nicht die ganze Seite neu gemalt werden.
+//
+// Es gibt mehrere Seiten untereinander (siehe document.js). Gemalt werden immer
+// nur die Seiten, die gerade auf dem Bildschirm zu sehen sind.
 
 import { PAGE_WIDTH, PAGE_HEIGHT } from './view.js';
-import { fillStroke } from './ink.js';
+import { fillStroke, setInkTheme } from './ink.js';
+import { drawTemplate, paperColor } from './templates.js';
 
 export class Renderer {
-  constructor(canvas, view, strokes) {
+  constructor(canvas, view, doc) {
     this.canvas = canvas;
     this.view = view;
-    this.strokes = strokes;
+    this.doc = doc;
+    this.darkPaper = false; // dunkles Blatt? (wird von main.js gesetzt)
 
     // desynchronized: true = "Low-Latency-Modus". Der Browser darf das Bild
     // sofort anzeigen, ohne auf den nächsten Bildschirm-Takt zu warten.
@@ -24,7 +29,7 @@ export class Renderer {
     this.cache = document.createElement('canvas');
     this.cacheCtx = this.cache.getContext('2d', { alpha: false });
 
-    // Noch ein Zwischenbild nur mit Hintergrund + leerem Blatt ("Papier").
+    // Noch ein Zwischenbild nur mit Hintergrund + leeren Blättern mit Linien ("Papier").
     // Daraus können wir beim Radieren schnell kleine Stücke wiederherstellen.
     this.paper = document.createElement('canvas');
     this.paperCtx = this.paper.getContext('2d', { alpha: false });
@@ -33,6 +38,7 @@ export class Renderer {
     this.overlay = null;   // was gerade "über" der Seite liegt (aktueller Strich, Radierer-Kreis)
     this.lastBox = null;   // wo das Overlay zuletzt war
     this.frame = 0;
+    this.onRender = null;  // wird nach jedem kompletten Neumalen aufgerufen
     this.readColors();
   }
 
@@ -57,10 +63,39 @@ export class Renderer {
   }
 
   // Die Kamera (Zoom + Verschiebung) auf einen Zeichen-Kontext anwenden.
-  // Danach können wir direkt in Seiten-Koordinaten malen.
+  // Danach können wir direkt in Dokument-Koordinaten malen.
   applyView(ctx) {
     const s = this.view.scale * this.dpr;
     ctx.setTransform(s, 0, 0, s, this.view.x * this.dpr, this.view.y * this.dpr);
+  }
+
+  // Wie applyView, aber (0, 0) ist die linke obere Ecke von Seite i.
+  // Außerdem wird alles außerhalb der Seite abgeschnitten und die Tinte auf das Papier eingestellt.
+  enterPage(ctx, i) {
+    this.applyView(ctx);
+    ctx.translate(0, this.doc.top(i));
+    ctx.beginPath();
+    ctx.rect(0, 0, PAGE_WIDTH, PAGE_HEIGHT);
+    ctx.clip();
+    this.useInkOf(i);
+  }
+
+  useInkOf(i) {
+    const page = this.doc.pages[i];
+    setInkTheme(this.darkPaper, paperColor(page?.template.paper, this.darkPaper));
+  }
+
+  // Welche Seiten sind (teilweise) zu sehen? Optional nur in einem Bereich (Dokument-Koordinaten)
+  visibleArea(area) {
+    let [x0, y0] = this.view.toPage(0, 0);
+    let [x1, y1] = this.view.toPage(this.view.width, this.view.height);
+    if (area) {
+      x0 = Math.max(x0, area.minX);
+      y0 = Math.max(y0, area.minY);
+      x1 = Math.min(x1, area.maxX);
+      y1 = Math.min(y1, area.maxY);
+    }
+    return { x0, y0, x1, y1 };
   }
 
   // Neu malen beim nächsten Bild (für Zoomen/Verschieben: höchstens 1x pro Bild)
@@ -73,26 +108,53 @@ export class Renderer {
   }
 
   renderNow() {
+    if (this.frame) {
+      cancelAnimationFrame(this.frame);
+      this.frame = 0;
+    }
     this.renderScene();
     this.copyFromCache(null);
     this.drawOverlay();
+    this.onRender?.();
   }
 
-  // Das Papier malen: Hintergrund und weißes Blatt mit weichem Schatten.
+  // Das Papier malen: Hintergrund, Blätter mit weichem Schatten, Linien der Vorlage.
   // (Der Schatten ist aufwendig, darum nur nach Zoomen/Verschieben.)
   renderPaper() {
     const c = this.paperCtx;
     c.setTransform(1, 0, 0, 1, 0, 0);
     c.fillStyle = this.colors.bg;
     c.fillRect(0, 0, this.paper.width, this.paper.height);
-    this.applyView(c);
-    c.save();
-    c.shadowColor = this.colors.shadow;
-    c.shadowBlur = 20 * this.dpr;
-    c.shadowOffsetY = 4 * this.dpr;
-    c.fillStyle = '#ffffff';
-    c.fillRect(0, 0, PAGE_WIDTH, PAGE_HEIGHT);
-    c.restore();
+
+    const vis = this.visibleArea(null);
+    const [first, last] = this.doc.range(vis.y0, vis.y1);
+    const px = this.view.scale * this.dpr; // echte Pixel pro Seiten-Einheit
+    for (let i = first; i <= last; i++) {
+      const page = this.doc.pages[i];
+      const top = this.doc.top(i);
+      this.applyView(c);
+      c.translate(0, top);
+      c.save();
+      c.shadowColor = this.colors.shadow;
+      c.shadowBlur = 20 * this.dpr;
+      c.shadowOffsetY = 4 * this.dpr;
+      c.fillStyle = paperColor(page.template.paper, this.darkPaper);
+      c.fillRect(0, 0, PAGE_WIDTH, PAGE_HEIGHT);
+      c.restore();
+      if (this.darkPaper) {
+        // Auf dunklem Hintergrund sieht man den Schatten kaum: feiner heller Rand
+        c.strokeStyle = 'rgba(255, 255, 255, 0.07)';
+        c.lineWidth = 1 / px;
+        c.strokeRect(0, 0, PAGE_WIDTH, PAGE_HEIGHT);
+      }
+      c.save();
+      c.beginPath();
+      c.rect(0, 0, PAGE_WIDTH, PAGE_HEIGHT);
+      c.clip();
+      const local = { x0: vis.x0, y0: vis.y0 - top, x1: vis.x1, y1: vis.y1 - top };
+      drawTemplate(c, page.template, local, px, this.darkPaper);
+      c.restore();
+    }
   }
 
   // Das Zwischenbild komplett neu malen: Papier + alle sichtbaren Striche
@@ -104,29 +166,28 @@ export class Renderer {
     this.drawStrokes(c, null);
   }
 
-  // Striche ins Zwischenbild malen – alle sichtbaren, oder nur die in einem Bereich (Seiten-Koordinaten)
+  // Striche ins Zwischenbild malen – alle sichtbaren, oder nur die in einem Bereich (Dokument-Koordinaten)
   drawStrokes(c, area) {
-    let [vx0, vy0] = this.view.toPage(0, 0);
-    let [vx1, vy1] = this.view.toPage(this.view.width, this.view.height);
-    if (area) {
-      vx0 = Math.max(vx0, area.minX);
-      vy0 = Math.max(vy0, area.minY);
-      vx1 = Math.min(vx1, area.maxX);
-      vy1 = Math.min(vy1, area.maxY);
+    const vis = this.visibleArea(area);
+    if (vis.x0 > vis.x1 || vis.y0 > vis.y1) return;
+    const [first, last] = this.doc.range(vis.y0, vis.y1);
+    for (let i = first; i <= last; i++) {
+      const top = this.doc.top(i);
+      const y0 = vis.y0 - top;
+      const y1 = vis.y1 - top;
+      c.save();
+      this.enterPage(c, i);
+      for (const s of this.doc.pages[i].strokes) {
+        const b = s.box;
+        if (!b || b.maxX < vis.x0 || b.minX > vis.x1 || b.maxY < y0 || b.minY > y1) continue;
+        fillStroke(c, s);
+      }
+      c.restore();
     }
-    c.save();
-    this.applyView(c);
-    this.clipToPage(c);
-    for (const s of this.strokes) {
-      const b = s.box;
-      if (!b || b.maxX < vx0 || b.minX > vx1 || b.maxY < vy0 || b.minY > vy1) continue;
-      fillStroke(c, s);
-    }
-    c.restore();
   }
 
   // Nur einen Bereich neu malen (z. B. dort, wo der Radierer gerade einen Strich gelöscht hat).
-  // Viel schneller als alles neu zu malen – darum folgt der Radierer flüssig dem Stift.
+  // area in Dokument-Koordinaten. Viel schneller als alles neu zu malen.
   redrawArea(area) {
     const [x0, y0] = this.view.toScreen(area.minX, area.minY);
     const [x1, y1] = this.view.toScreen(area.maxX, area.maxY);
@@ -150,18 +211,11 @@ export class Renderer {
     this.drawOverlay();
   }
 
-  clipToPage(ctx) {
-    ctx.beginPath();
-    ctx.rect(0, 0, PAGE_WIDTH, PAGE_HEIGHT);
-    ctx.clip();
-  }
-
-  // Einen fertigen Strich ins Zwischenbild übernehmen (ohne alles neu zu malen)
-  commitStroke(stroke) {
+  // Einen fertigen Strich von Seite i ins Zwischenbild übernehmen (ohne alles neu zu malen)
+  commitStroke(stroke, i) {
     const c = this.cacheCtx;
     c.save();
-    this.applyView(c);
-    this.clipToPage(c);
+    this.enterPage(c, i);
     fillStroke(c, stroke);
     c.restore();
     this.setOverlay(null);

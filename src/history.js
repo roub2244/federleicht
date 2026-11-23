@@ -1,16 +1,17 @@
 // history.js – Rückgängig und Wiederholen
 //
-// Jede Änderung an der Seite speichern wir als "Aktion":
-//   { added: [Striche, die dazugekommen sind], removed: [Striche, die weg sind] }
+// Jede Änderung speichern wir als "Aktion". Eine Aktion kann enthalten:
+//   strokes:   [{ page, added: [Striche dazu], removed: [Striche weg] }, ...]  (pro Seite)
+//   pages:     { before: [Seiten vorher], after: [Seiten nachher] }        (Seiten hinzugefügt/gelöscht/verschoben)
+//   templates: [{ page, before: alteVorlage, after: neueVorlage }, ...]     (Vorlage geändert)
 //
 // Beispiele:
-//   Strich zeichnen      -> { added: [neuer Strich], removed: [] }
-//   Strich radieren      -> { added: [],             removed: [alter Strich] }
-//   Bereich radieren     -> { added: [Reststücke],   removed: [alter Strich] }
-//   Seite leeren         -> { added: [],             removed: [alle Striche] }
+//   Strich zeichnen      -> strokes: [{ page, added: [neuer Strich], removed: [] }]
+//   Bereich radieren     -> strokes: [{ page, added: [Reststücke], removed: [alter Strich] }]
+//   Seite löschen        -> pages: { before: [A, B, C], after: [A, C] }
 //
-// Rückgängig = die Aktion "umgekehrt" ausführen: added entfernen, removed wieder einfügen.
-// Wiederholen = die Aktion noch einmal ausführen: removed entfernen, added einfügen.
+// Rückgängig = die Aktion "umgekehrt" ausführen, Wiederholen = noch einmal ausführen
+// (das macht main.js in applyAction).
 //
 // Zwei Stapel (wie ein Stapel Teller – man nimmt immer den obersten):
 //   undoStack: was man rückgängig machen kann (oben = das Neueste)
@@ -27,7 +28,7 @@ export class History {
 
   // Neue Aktion merken. Danach kann man nichts mehr "wiederholen".
   push(action) {
-    if (action.added.length === 0 && action.removed.length === 0) return; // nichts passiert
+    if (isEmpty(action)) return; // nichts passiert
     this.undoStack.push(action);
     if (this.undoStack.length > LIMIT) this.undoStack.shift(); // ältesten Schritt vergessen
     this.redoStack.length = 0;
@@ -60,4 +61,9 @@ export class History {
   get canRedo() {
     return this.redoStack.length > 0;
   }
+}
+
+function isEmpty(action) {
+  const strokes = (action.strokes || []).some((c) => c.added.length || c.removed.length);
+  return !strokes && !action.pages && !(action.templates && action.templates.length);
 }

@@ -7,7 +7,7 @@
 //   - Stern im Popup           -> aktuellen Stift als Favorit oben in die Leiste legen
 //   - Favorit lange drücken    -> Favorit entfernen
 
-import { createStroke, finishStroke, fillStroke } from './ink.js';
+import { createStroke, finishStroke, fillStroke, inkTheme, setInkTheme } from './ink.js';
 import {
   PEN_TYPES, COLOR_PAGES, HIGHLIGHTER_COLORS, SIZE_RANGE, MAX_FAVORITES,
   saveTools, activeStyle, settingsOf, rememberColor, isActiveFavorite,
@@ -477,6 +477,9 @@ export function drawSample(canvas, { type, color, size, opacity }) {
   const ctx = canvas.getContext('2d');
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, w, h);
+  // Die Vorschau zeigt immer die echte Farbe (auch wenn das Blatt gerade dunkel ist)
+  const savedTheme = { ...inkTheme };
+  setInkTheme(false, '#ffffff');
   ctx.fillStyle = isLight(color) && type !== 'highlighter' ? '#2b2e35' : '#ffffff'; // Weiß auf dunklem Papier zeigen
   ctx.fillRect(0, 0, w, h);
 
@@ -519,4 +522,5 @@ export function drawSample(canvas, { type, color, size, opacity }) {
   }
   finishStroke(stroke);
   fillStroke(ctx, stroke);
+  setInkTheme(savedTheme.dark, savedTheme.paper);
 }
