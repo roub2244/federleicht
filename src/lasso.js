@@ -44,10 +44,11 @@ const ICON = {
   color: '<svg viewBox="0 0 24 24"><path d="M12 3.5a8.5 8.5 0 1 0 0 17c1.3 0 2-.8 2-1.8 0-1.3-1.2-1.6-1.2-2.8 0-1 .8-1.6 1.9-1.6h2.2a3.6 3.6 0 0 0 3.6-3.6c0-4-3.8-7.2-8.5-7.2z"/><circle cx="7.8" cy="11.5" r="1.2" fill="currentColor"/><circle cx="10.5" cy="7.6" r="1.2" fill="currentColor"/><circle cx="15" cy="7.8" r="1.2" fill="currentColor"/></svg>',
   front: '<svg viewBox="0 0 24 24"><path d="M12 3.5 20 8l-8 4.5L4 8z"/><path d="m4 12.5 8 4.5 8-4.5" opacity=".45"/><path d="m4 16.5 8 4.5 8-4.5" opacity=".45"/></svg>',
   back: '<svg viewBox="0 0 24 24"><path d="M12 3.5 20 8l-8 4.5L4 8z" opacity=".45"/><path d="m4 12.5 8 4.5 8-4.5" opacity=".45"/><path d="m4 16.5 8 4.5 8-4.5"/></svg>',
+  crop: '<svg viewBox="0 0 24 24"><path d="M6.5 3v14.5H21"/><path d="M3 6.5h14.5V21"/></svg>',
   rotate: '<svg viewBox="0 0 24 24"><path d="M19 12a7 7 0 1 1-2.1-5"/><path d="M17.5 3.5v4h-4"/></svg>',
 };
 
-export function setupLasso({ stage, view, doc, renderer, tools, commit, newZ, currentIndex, toast }) {
+export function setupLasso({ stage, view, doc, renderer, tools, commit, newZ, currentIndex, toast, onEditImage }) {
   // ---------- Bausteine auf dem Bildschirm ----------
   const layer = document.createElement('div');
   layer.className = 'sel-layer';
@@ -69,6 +70,7 @@ export function setupLasso({ stage, view, doc, renderer, tools, commit, newZ, cu
   bar.className = 'sel-bar';
   bar.hidden = true;
   bar.innerHTML = [
+    ['crop', 'Bearbeiten'],
     ['cut', 'Ausschneiden'],
     ['copy', 'Kopieren'],
     ['duplicate', 'Duplizieren'],
@@ -297,6 +299,8 @@ export function setupLasso({ stage, view, doc, renderer, tools, commit, newZ, cu
     box.classList.toggle('small', Math.min(f.w, f.h) * s < 90);
     box.classList.toggle('dragging', Boolean(drag));
     bar.hidden = Boolean(drag);
+    // "Bearbeiten" (zuschneiden, geraderücken) gibt es nur für ein einzelnes Bild
+    bar.querySelector('[data-act="crop"]').hidden = !(sel.items.length === 1 && sel.items[0].tool === 'image');
     if (!drag) placeBar(f, index);
   }
 
@@ -515,6 +519,13 @@ export function setupLasso({ stage, view, doc, renderer, tools, commit, newZ, cu
 
   function run(act) {
     if (!sel) return;
+    if (act === 'crop') {
+      const page = sel.page;
+      const item = sel.items[0];
+      clear();
+      onEditImage?.(page, item);
+      return;
+    }
     if (act === 'copy') {
       copy();
       toast(`${countText(sel.items.length)} kopiert – mit dem Lasso auf eine freie Stelle tippen zum Einfügen`);

@@ -23,11 +23,12 @@ import { setupHome } from './home.js';
 import { askText, toast, progressBox, chooseAction } from './dialog.js';
 import { setupLasso } from './lasso.js';
 import { recognizeShape, shapeFromDrag, densify, transformShape, FILL_MODES, fillable } from './shapes.js';
-import { prepareImage, createImageItem, placeMatrix, remember, onMediaLoaded, ensureLoaded, imageIdsOf, fileIdsOf, mediaSettings, pageDark } from './media.js';
+import { prepareImage, createImageItem, placeMatrix, remember, canvasBlob, onMediaLoaded, ensureLoaded, imageIdsOf, fileIdsOf, mediaSettings, pageDark } from './media.js';
 import { importPdf, scheduleSharp } from './pdfdoc.js';
 import { exportPdf, exportImage, fileName, canShareFile, shareFile, downloadFile } from './export.js';
 import { setupMediaMenu } from './mediamenu.js';
 import { computeFill, createFill } from './fill.js';
+import { openImageEditor } from './imageeditor.js';
 
 // ---------- Einstellungen ----------
 // Farbe, Dicke, Stiftart usw. kommen aus der Werkzeugleiste (siehe tools.js)
@@ -870,6 +871,7 @@ lasso = setupLasso({
   newZ: () => nextZ++,
   currentIndex,
   toast,
+  onEditImage: editImage,
 });
 
 
@@ -952,6 +954,51 @@ async function insertImages(files, at = null) {
   renderer.renderNow();
   lasso.select(page, added); // gleich ausgewählt: verschieben, größer/kleiner, drehen
   toast(added.length === 1 ? 'Bild eingefügt – ziehen zum Verschieben, Ecken für die Größe' : `${added.length} Bilder eingefügt`);
+}
+
+// Bild bearbeiten (zuschneiden, drehen, geraderücken, Filter – siehe imageeditor.js)
+function editImage(page, item) {
+  textEditor.finish();
+  openImageEditor({
+    item,
+    toast,
+    async onDone({ canvas, src, reset, center }) {
+      if (!doc.pages.includes(page) || !page.strokes.includes(item)) return;
+      let blobId = src.blobId;
+      let w = src.iw;
+      let h = src.ih;
+      if (!reset) {
+        const blob = await canvasBlob(canvas, 'image/webp', 0.9);
+        blobId = store.uid();
+        await store.putBlob(blobId, blob);
+        w = canvas.width;
+        h = canvas.height;
+        remember(blobId, window.createImageBitmap ? await createImageBitmap(canvas) : canvas);
+      }
+      canvas.width = canvas.height = 0;
+      // Größe: gleicher Maßstab wie bisher (Seiten-Einheiten pro Bildpunkt), Drehung bleibt
+      const m = item.m;
+      const lenX = Math.hypot(m[0], m[1]);
+      const lenY = Math.hypot(m[2], m[3]);
+      const ex = [m[0] / lenX, m[1] / lenX];
+      const ey = [m[2] / lenY, m[3] / lenY];
+      const k = lenX / item.iw;
+      // Mitte: beim ersten Bearbeiten dort, wo der Ausschnitt im alten Bild lag, sonst die alte Mitte
+      const c = item.src || reset ? [m[4] + (m[0] + m[2]) / 2, m[5] + (m[1] + m[3]) / 2] : [m[4] + m[0] * center[0] + m[2] * center[1], m[5] + m[1] * center[0] + m[3] * center[1]];
+      let pw = w * k;
+      let ph = h * k;
+      // Nicht größer als die Seite
+      const fit = Math.min(1, (PAGE_WIDTH * 0.95) / pw, (PAGE_HEIGHT * 0.95) / ph);
+      pw *= fit;
+      ph *= fit;
+      const nm = [ex[0] * pw, ex[1] * pw, ey[0] * ph, ey[1] * ph, c[0] - (ex[0] * pw + ey[0] * ph) / 2, c[1] - (ex[1] * pw + ey[1] * ph) / 2];
+      const fresh = createImageItem({ blobId, iw: w, ih: h, m: nm, z: item.z, src: reset ? null : src });
+      commitChanges([{ page, added: [fresh], removed: [item] }]);
+      renderer.renderNow();
+      lasso.select(page, [fresh]);
+      toast(reset ? 'Bild zurückgesetzt' : 'Bild bearbeitet');
+    },
+  });
 }
 
 // PDF einlesen: Fortschritt zeigen, Hintergründe zurückgeben (oder null)

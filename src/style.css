@@ -3573,3 +3573,150 @@ body {
 .nt-state {
   white-space: nowrap;
 }
+
+/* ======================================================================
+   Etappe 8: Bild bearbeiten (siehe imageeditor.js)
+   Immer dunkel wie in Foto-Apps – so sieht man das Bild am besten.
+   ====================================================================== */
+.img-editor {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  background: #0e1015;
+  color: #e8ebf2;
+  color-scheme: dark;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  animation: ie-in 0.18s ease-out;
+}
+@keyframes ie-in {
+  from { opacity: 0; transform: scale(0.985); }
+}
+.ie-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: max(10px, env(safe-area-inset-top)) 14px 6px;
+}
+.ie-title {
+  font-weight: 600;
+  font-size: 17px;
+}
+.ie-text-btn {
+  border: none;
+  background: none;
+  color: #c9cfdb;
+  font: inherit;
+  font-size: 16px;
+  padding: 10px 14px;
+  border-radius: 12px;
+}
+.ie-text-btn:active { background: rgba(255, 255, 255, 0.08); }
+.ie-done {
+  color: #fff;
+  background: #4a6cf7;
+  font-weight: 600;
+  padding: 9px 20px;
+}
+.ie-done:active { background: #3d5ce0; }
+.img-editor.busy .ie-done { opacity: 0.6; }
+.img-editor.busy .ie-done::after { content: ' …'; }
+.ie-stage {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  touch-action: none;
+}
+.ie-canvas {
+  position: absolute;
+  inset: 0;
+}
+.ie-loupe {
+  position: absolute;
+  border-radius: 50%;
+  border: 3px solid #fff;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.55);
+  pointer-events: none;
+}
+.ie-hint {
+  min-height: 20px;
+  padding: 4px 16px 8px;
+  text-align: center;
+  font-size: 13.5px;
+  color: #9aa2b4;
+}
+.ie-tools {
+  display: grid;
+  gap: 10px;
+  justify-items: center;
+  padding: 4px 12px max(14px, env(safe-area-inset-bottom));
+}
+.ie-seg {
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.07);
+}
+.ie-seg button,
+.ie-btn {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  border: none;
+  background: none;
+  color: #d7dbe4;
+  font: inherit;
+  font-size: 14.5px;
+  padding: 9px 14px;
+  border-radius: 11px;
+}
+.ie-seg button.selected {
+  background: #2c3344;
+  color: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+}
+.ie-seg svg,
+.ie-btn svg {
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.ie-btn:active,
+.ie-seg button:active { background: rgba(255, 255, 255, 0.1); }
+.ie-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 4px;
+}
+.ie-filters {
+  display: flex;
+  gap: 12px;
+}
+.ie-filters button {
+  display: grid;
+  justify-items: center;
+  gap: 5px;
+  border: none;
+  background: none;
+  color: #aeb5c4;
+  font: inherit;
+  font-size: 12.5px;
+  padding: 0;
+}
+.ie-thumb {
+  width: 58px;
+  height: 58px;
+  border-radius: 12px;
+  border: 2px solid transparent;
+}
+.ie-filters button.selected { color: #fff; }
+.ie-filters button.selected .ie-thumb { border-color: #7b93ff; }
