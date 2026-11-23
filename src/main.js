@@ -1,5 +1,6 @@
 // main.js – der Startpunkt: hier wird alles zusammengesteckt
 import './style.css';
+import './paint.js'; // Farbflächen auf Canvas (gegen den Dunkelmodus von Samsung Internet)
 import { View } from './view.js';
 import { Renderer } from './renderer.js';
 import { createStroke, buildPath, finishStroke, fillStroke, strokeHit, cutStroke } from './ink.js';

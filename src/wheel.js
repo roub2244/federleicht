@@ -17,6 +17,7 @@
 import { penSVG, isLight } from './pens.js';
 import { PEN_TYPES, COLOR_PAGES, HIGHLIGHTER_COLORS, activeStyle, isActiveFavorite } from './tools.js';
 import { penName } from './toolbar.js';
+import { paint } from './paint.js';
 
 const SIZE = 280;  // Durchmesser in Pixeln
 const RING = 92;   // Abstand der Knöpfe von der Mitte
@@ -39,7 +40,8 @@ function polar(r, deg) {
 // Einen Knopf an Winkel/Abstand setzen
 function at(deg, r, html, attrs, cls = '', color = '') {
   const [x, y] = polar(r, deg);
-  return `<button class="wb ${cls}" style="left:${x}px;top:${y}px;${color ? `--c:${color}` : ''}" ${attrs}>${html}</button>`;
+  const dot = color ? `<span class="wdot">${paint(color)}</span>` : '';
+  return `<button class="wb ${cls}" style="left:${x}px;top:${y}px" ${attrs}>${dot}${html}</button>`;
 }
 
 export function setupWheel({ tools, onPick }) {

@@ -2,6 +2,7 @@
 
 /* Farben als Variablen: so können wir später leicht Hell/Dunkel umschalten */
 :root {
+  color-scheme: light dark;
   --bg: #eef1f6;          /* Hintergrund hinter der Seite */
   --bar: #f9fafc;         /* obere Leiste */
   --text: #1d2433;
@@ -42,6 +43,16 @@
 
 * {
   box-sizing: border-box;
+}
+
+/* Farbflächen als Canvas (siehe paint.js): füllen ihr Elternelement ganz aus */
+canvas.paint {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  pointer-events: none;
 }
 
 /* "hidden" soll immer gewinnen, auch wenn eine Klasse display setzt */
@@ -212,7 +223,7 @@ body {
   height: 4px;
   margin-left: -7px;
   border-radius: 2px;
-  background: var(--swatch, currentColor);
+  overflow: hidden;
 }
 
 .tool-btn.active {
@@ -246,20 +257,21 @@ body {
 }
 
 .fav {
+  position: relative;
+  overflow: hidden;
   width: 26px;
   height: 26px;
   padding: 0;
   border: none;
   border-radius: 50%;
-  background: var(--c);
-  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.12);
+  background: none;
   cursor: pointer;
   transition: transform 0.15s;
   -webkit-touch-callout: none;
 }
 
 .fav.light {
-  box-shadow: inset 0 0 0 1.5px #9aa0aa;
+  box-shadow: 0 0 0 1.5px #9aa0aa;
 }
 
 /* Textmarker-Favorit: halb durchsichtig mit flacher Kante */
@@ -449,11 +461,8 @@ body {
 
 /* Deckkraft-Regler: Schachbrett (= durchsichtig) bis volle Farbe */
 .st-track.opacity {
-  background-image: linear-gradient(to right, transparent, var(--c, #ffd400)),
-    repeating-conic-gradient(#8a8f99 0 25%, #c9cdd4 0 50%);
-  background-size: 100% 100%, 10px 10px;
-  background-position: 0 0, 0 0;
-  background-repeat: no-repeat, repeat;
+  background: none;
+  overflow: hidden;
 }
 
 .st-thumb {
@@ -554,14 +563,13 @@ body {
   padding: 0;
   border: none;
   border-radius: 50%;
-  background: var(--c);
-  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.12);
+  background: none;
   cursor: pointer;
   transition: transform 0.15s;
 }
 
 .swatch-btn.light {
-  box-shadow: inset 0 0 0 1.5px #9aa0aa;
+  box-shadow: 0 0 0 1.5px #9aa0aa;
 }
 
 .swatch-btn:active,
@@ -569,34 +577,10 @@ body {
   transform: scale(0.88);
 }
 
-/* Ausgewählt: Häkchen in der Mitte (schwarz auf hellen Farben, weiß auf dunklen) */
-.swatch-btn.selected::after {
-  content: '';
-  position: absolute;
-  left: 11px;
-  top: 8px;
-  width: 7px;
-  height: 12px;
-  border: solid #fff;
-  border-width: 0 2.5px 2.5px 0;
-  transform: rotate(45deg);
-}
-
-.swatch-btn.light.selected::after {
-  border-color: #222;
-}
+/* Ausgewählt: Häkchen in der Mitte (wird in paint.js auf das Canvas gemalt) */
 
 .rainbow {
-  background: conic-gradient(#ff4d4d, #ffb31a, #ffe14d, #4dd964, #4dc3ff, #5a6bff, #c04dff, #ff4d4d);
   box-shadow: none;
-}
-
-.rainbow::after {
-  content: '';
-  position: absolute;
-  inset: 7px;
-  border-radius: 50%;
-  background: radial-gradient(circle, #fff, rgba(255, 255, 255, 0));
 }
 
 .rainbow.selected {
@@ -695,7 +679,9 @@ body {
 }
 
 .cp-grid button {
+  position: relative;
   aspect-ratio: 1;
+  background: none;
   padding: 0;
   border: none;
   cursor: pointer;
@@ -718,7 +704,6 @@ body {
   position: relative;
   height: 150px;
   border-radius: 14px;
-  background: linear-gradient(to top, #000, transparent), linear-gradient(to right, #fff, hsl(var(--hue, 0) 100% 50%));
   touch-action: none;
   cursor: crosshair;
 }
@@ -727,7 +712,6 @@ body {
   position: relative;
   height: 22px;
   border-radius: 11px;
-  background: linear-gradient(to right, #f00, #ff0, #0f0, #0ff, #00f, #f0f, #f00);
   touch-action: none;
   cursor: pointer;
 }
@@ -741,6 +725,7 @@ body {
   border: 3px solid #fff;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
   pointer-events: none;
+  z-index: 1;
 }
 
 .cp-hue .cp-thumb {
@@ -754,6 +739,8 @@ body {
 }
 
 .cp-preview {
+  position: relative;
+  overflow: hidden;
   width: 34px;
   height: 34px;
   border-radius: 50%;
@@ -956,16 +943,17 @@ body {
 }
 
 /* Farbknöpfe */
-.wb.color::before {
-  content: '';
+.wb.color .wdot {
+  display: block;
+  position: relative;
   width: 28px;
   height: 28px;
   border-radius: 50%;
-  background: var(--c);
+  overflow: hidden;
   box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.85);
 }
 
-.wb.color.big::before {
+.wb.color.big .wdot {
   width: 32px;
   height: 32px;
 }
@@ -974,7 +962,7 @@ body {
   background: none;
 }
 
-.wb.color.on::before {
+.wb.color.on .wdot {
   box-shadow: 0 0 0 2px rgba(36, 38, 44, 1), 0 0 0 4.5px #9fb1ff;
 }
 
