@@ -35,6 +35,10 @@ const STALE_MS = 250;
 const CLICK_MS = 350;
 // Knopf in der Luft so lange (ms) gedrückt halten, ohne aufzusetzen -> Schnellmenü (Rad) öffnet sich
 const QUICK_MENU_MS = 700;
+// So lange (ms) nach dem Abheben wird "contextmenu" nicht als Stiftknopf gewertet (siehe onContextMenu)
+const CONTEXT_AFTER_LIFT_MS = 900;
+// So lange (ms) nach dem Abheben zählt "Spitze unten ohne Druck" nicht als gedrückter Knopf
+const LINGER_MS = 250;
 
 // ---------- Die zwei wichtigsten Funktionen für den S Pen ----------
 //
@@ -257,6 +261,9 @@ export function setupInput(canvas, app) {
     } else if (contacts.size === 0 && !ended) {
       // Schweben: Knopf-Zustand merken
       let held = isButtonHeldWhileHovering(e);
+      // Direkt nach dem Abheben kann noch ein "Spitze unten, Druck 0"-Event nachkommen.
+      // Das ist kein Knopf – sonst würde der nächste Strich radieren.
+      if (held && !isEraserButton(e) && e.timeStamp - lastContactEnd < LINGER_MS) held = false;
       if (waitForRelease) {
         // Nach dem Schnellmenü: erst wenn der Knopf los ist, zählt er wieder
         if (!held) waitForRelease = false;
@@ -337,8 +344,19 @@ export function setupInput(canvas, app) {
 
   // Auf dem Samsung-Tablet löst der Knopf beim Schweben auch ein "contextmenu" aus.
   // Das nutzen wir als zusätzliches Signal (und verhindern das Menü).
+  // ABER: Android meldet "contextmenu" auch, wenn die Spitze lange still auf dem Display liegt
+  // (z. B. beim Nachdenken mitten im Wort oder beim Stillhalten für eine Form). Kam das
+  // erst beim oder kurz nach dem Abheben, wurde der nächste Strich zum Radierer und hat
+  // Geschriebenes gelöscht. Darum zählt es nur, wenn der Stift gerade schwebt und eine
+  // Weile nicht mehr aufgelegen hat.
   function onContextMenu(e) {
     e.preventDefault();
+    const touching = contacts.size > 0 || penMode !== 'none';
+    const justLifted = e.timeStamp - lastContactEnd < CONTEXT_AFTER_LIFT_MS;
+    if (touching || justLifted) {
+      app.debug.addLine('contextmenu beim/nach dem Schreiben → ignoriert');
+      return;
+    }
     if (e.timeStamp - lastPenTime < 1000) buttonReleasedAt = e.timeStamp;
   }
 
