@@ -445,6 +445,11 @@ export function setupPages(api) {
   return {
     closePopup,
     onViewChange,
+    // Beim Wechsel zum Startbildschirm: alle Seiten-Menüs zu
+    closeAll() {
+      closePopup();
+      if (!overview.hidden) closeOverview();
+    },
     // nach Änderungen an den Seiten (auch Rückgängig): Menüs neu anzeigen
     refresh() {
       if (popupPage >= doc.count) popupPage = doc.count - 1;

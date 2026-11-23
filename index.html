@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="de">
+<html lang="de" class="booting">
   <head>
     <meta charset="UTF-8" />
     <!-- user-scalable=no: Der Browser soll nicht selbst zoomen, das macht unsere App -->
@@ -23,8 +23,14 @@
     <!-- Obere Leiste: links Rückgängig/Wiederholen, Mitte Werkzeuge, rechts Ansicht -->
     <header class="topbar">
       <div class="bar-left">
-        <img class="logo" src="/icons/icon.svg" alt="" width="28" height="28" />
-        <span class="brand-name">Federleicht</span>
+        <!-- Zurück zum Startbildschirm, daneben der Titel der Notiz (antippen = umbenennen) -->
+        <button id="btn-home" class="icon-btn" title="Alle Notizen" aria-label="Alle Notizen">
+          <svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7" /></svg>
+        </button>
+        <button id="note-title" class="note-title" title="Umbenennen">
+          <span class="nt-text">Notiz</span>
+          <span class="nt-state" aria-live="polite"></span>
+        </button>
         <button id="btn-undo" class="icon-btn" title="Rückgängig" aria-label="Rückgängig" disabled>
           <svg viewBox="0 0 24 24"><path d="M9 14 4 9l5-5" /><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11" /></svg>
         </button>
@@ -74,6 +80,11 @@
           <svg viewBox="0 0 24 24"><rect x="4" y="4" width="7" height="7" rx="1.5" /><rect x="13" y="4" width="7" height="7" rx="1.5" /><rect x="4" y="13" width="7" height="7" rx="1.5" /><rect x="13" y="13" width="7" height="7" rx="1.5" /></svg>
           <span>1 / 1</span>
         </button>
+        <!-- Scroll-Sperre: kein Zoomen, kein seitliches Verrutschen beim Schreiben -->
+        <button id="btn-lock" class="icon-btn" title="Scroll-Sperre" aria-label="Scroll-Sperre" aria-pressed="false">
+          <svg viewBox="0 0 24 24" class="lock-open"><rect x="5" y="11" width="14" height="9.5" rx="2.2" /><path d="M8.5 11V7.5a3.5 3.5 0 0 1 6.8-1.2" /></svg>
+          <svg viewBox="0 0 24 24" class="lock-closed"><rect x="5" y="11" width="14" height="9.5" rx="2.2" /><path d="M8.5 11V7.5a3.5 3.5 0 0 1 7 0V11" /><path d="M12 14.6v2.4" /></svg>
+        </button>
         <button id="btn-zoom" class="btn zoom-btn" title="Zoom zurücksetzen">100 %</button>
         <button id="btn-debug" class="icon-btn" title="Stift-Diagnose ein/aus" aria-label="Stift-Diagnose">
           <svg viewBox="0 0 24 24"><path d="M3 12h4l3-8 4 16 3-8h4" /></svg>
@@ -98,6 +109,9 @@
       <!-- Seitenübersicht mit kleinen Bildern aller Seiten -->
       <section id="overview" class="overview" hidden></section>
     </main>
+
+    <!-- Startbildschirm mit allen Notizen und Ordnern (wird von home.js gefüllt) -->
+    <div id="home" class="home" hidden></div>
 
     <!-- Diagnose-Fenster: zeigt, was der S Pen an die App schickt -->
     <aside id="debug" class="debug" hidden></aside>

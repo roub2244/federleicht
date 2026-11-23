@@ -270,9 +270,10 @@ function holes({ ctx }, color) {
 //   crop     1 = ganze Seite, 0.4 = nur die linke obere Ecke (40 % der Breite), damit man die Linien erkennt
 //   faint    Linien heller malen (bei ganz kleinen Bildern sonst nur grauer Brei)
 //   strokes  Striche der Seite, fill = Funktion, die einen Strich malt
-export function drawThumbnail(canvas, tpl, { dark = false, crop = 1, faint = false, strokes = [], fill = null } = {}) {
+//   width    Breite in echten Pixeln (Standard: so breit, wie das Canvas angezeigt wird)
+export function drawThumbnail(canvas, tpl, { dark = false, crop = 1, faint = false, strokes = [], fill = null, width = 0 } = {}) {
   const dpr = window.devicePixelRatio || 1;
-  const w = Math.max(1, Math.round((canvas.clientWidth || 80) * dpr));
+  const w = width || Math.max(1, Math.round((canvas.clientWidth || 80) * dpr));
   const h = Math.round((w * PAGE_HEIGHT) / PAGE_WIDTH);
   if (canvas.width !== w) canvas.width = w;
   if (canvas.height !== h) canvas.height = h;
