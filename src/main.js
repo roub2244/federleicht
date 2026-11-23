@@ -9,7 +9,7 @@ import { Renderer } from './renderer.js';
 import { createStroke, buildPath, finishStroke, fillStroke, strokeHit, cutStroke, inkTheme, setInkTheme, displayColor } from './ink.js';
 import { setupInput } from './input.js';
 import { Debug } from './debug.js';
-import { HoldDetector, linePoints, averagePressure, longEnough } from './straighten.js';
+import { HoldDetector, averagePressure, longEnough } from './straighten.js';
 import { History } from './history.js';
 import { LiftTracker } from './lift.js';
 import { setupTextEditor } from './texteditor.js';
@@ -20,6 +20,8 @@ import { setupWheel } from './wheel.js';
 import * as store from './store.js';
 import { setupHome } from './home.js';
 import { askText, toast } from './dialog.js';
+import { setupLasso } from './lasso.js';
+import { recognizeShape, shapeFromDrag, densify, transformShape, FILL_MODES, fillable } from './shapes.js';
 
 // ---------- Einstellungen ----------
 // Farbe, Dicke, Stiftart usw. kommen aus der Werkzeugleiste (siehe tools.js)
@@ -47,6 +49,8 @@ let pages = null;        // Seiten-Menüs (siehe pages.js), wird weiter unten ei
 let nextZ = 1;           // z-Nummer für den nächsten neuen Strich (höher = weiter oben)
 let textEditor = null;   // Textfelder bearbeiten (siehe texteditor.js), wird weiter unten eingerichtet
 let home = null;         // Startbildschirm (siehe home.js), wird weiter unten eingerichtet
+let lasso = null;        // Lasso-Auswahl (siehe lasso.js), wird weiter unten eingerichtet
+let shapeDrag = null;    // Formen-Werkzeug: Form wird gerade aufgezogen { start, end }
 
 // Rückgängig/Wiederholen: bei jeder Änderung die Knöpfe an- oder ausgrauen
 const history = new History(() => {
@@ -70,15 +74,20 @@ const app = {
 
   startStroke(point, pointerType) {
     liftedPointer = null;
+    // Lasso: statt zu zeichnen eine Auswahl-Schlinge ziehen (siehe lasso.js)
+    if (tools.tool === 'lasso') return lasso.penDown(point);
     // Der Strich gehört zu der Seite, auf der er anfängt (in der Lücke: die nähere)
     const index = doc.indexAt(point[1]);
     currentPage = doc.pages[index];
     currentTop = doc.top(index);
+    if (tools.tool === 'shape') return beginShapeDrag(toLocal(point));
     beginStroke(toLocal(point), pointerType);
   },
 
   extendStroke(points, predicted) {
     if (points.length === 0) return;
+    if (tools.tool === 'lasso') return lasso.penMove(points);
+    if (shapeDrag) return updateShapeDrag(toLocal(points[points.length - 1]));
     points = points.map(toLocal);
     predicted = predicted.map(toLocal);
 
@@ -95,9 +104,10 @@ const app = {
     }
     const last = points[points.length - 1];
 
-    // Schon begradigt? Dann folgt nur noch das Ende der Linie dem Stift.
+    // Schon zur Form geworden? Dann folgt die Form dem Stift (Linie: das Ende; Kreis, Rechteck …:
+    // größer/kleiner und drehen, solange die Spitze unten bleibt)
     if (current.straight) {
-      current.points = linePoints(current.points[0], last, current.linePressure);
+      applyShapeFit(last);
       drawCurrentStroke([]);
       return;
     }
@@ -131,6 +141,8 @@ const app = {
 
   endStroke() {
     liftedPointer = null;
+    if (tools.tool === 'lasso') return lasso.penUp();
+    if (shapeDrag) return finishShapeDrag();
     if (current && !current.simulatePressure && !current.straight) {
       // Leichte Punkte ganz am Ende (beim Abheben) weglassen -> kein Haken
       current.points.length = Math.max(1, lift.keepAtEnd(current.points.length));
@@ -139,6 +151,7 @@ const app = {
   },
 
   startErase(point) {
+    lasso?.clear();
     erasing = new Map();
     lastErase = point;
     eraseAt(point[0], point[1]);
@@ -336,18 +349,130 @@ function toDoc(p) {
   return [p[0], p[1] + currentTop, p[2]];
 }
 
-// Wird vom HoldDetector aufgerufen, wenn der Stift lange genug stillstand
+// Wird vom HoldDetector aufgerufen, wenn der Stift lange genug stillstand:
+// Aus dem Strich wird eine perfekte Form (siehe shapes.js) – oder wie bisher eine gerade Linie.
 function straightenCurrentStroke() {
   if (!current || current.straight) return;
   const start = current.points[0];
   const end = current.points[current.points.length - 1];
-  if (!longEnough(start, end, view.scale)) return;
+  // Textmarker: nur gerade Linien (zum Unterstreichen und Markieren)
+  const shape = recognizeShape(current.points, { onlyLine: current.tool === 'highlighter' });
+  if (!shape) return;
+  if (shape.kind === 'line' && !longEnough(start, end, view.scale)) return;
+  if (shape.closed) {
+    const b = shape.pts.reduce((m, p) => Math.max(m, Math.hypot(p[0] - shape.pivot[0], p[1] - shape.pivot[1])), 0);
+    if (b * 2 * view.scale < 24) return; // zu klein (z. B. ein "o" beim Schreiben)
+  }
 
   current.straight = true;
+  current.shape = shape.kind;
   current.linePressure = averagePressure(current.points);
-  current.points = linePoints(start, end, current.linePressure);
+  current.fit = { shape, ref: [end[0], end[1]] };
+  applyShapeFit(end);
   drawCurrentStroke([]);
+  debug.addLine(`Form erkannt: ${shape.kind}`);
   navigator.vibrate?.(12); // kurzes Ruckeln als Rückmeldung (falls das Gerät es kann)
+}
+
+// Die erkannte Form an die Stiftposition anpassen.
+// Linie: Das Ende folgt dem Stift. Andere Formen: so vergrößern und drehen, dass die Stelle,
+// an der du stillgehalten hast, dem Stift folgt (Drehpunkt: Mitte bzw. Anfang der Form).
+function applyShapeFit(pen) {
+  const { shape, ref } = current.fit;
+  let pts = shape.pts;
+  if (shape.kind === 'line') {
+    pts = [shape.pts[0], [pen[0], pen[1]]];
+  } else {
+    const pivot = shape.pivot;
+    const v0 = [ref[0] - pivot[0], ref[1] - pivot[1]];
+    const v1 = [pen[0] - pivot[0], pen[1] - pivot[1]];
+    const l0 = Math.hypot(v0[0], v0[1]);
+    if (l0 * view.scale > 8) {
+      let factor = Math.hypot(v1[0], v1[1]) / l0;
+      let angle = Math.atan2(v1[1], v1[0]) - Math.atan2(v0[1], v0[0]);
+      angle = Math.atan2(Math.sin(angle), Math.cos(angle));
+      if (Math.abs(angle) < 0.05 || shape.kind === 'circle') angle = 0; // kleines Zittern nicht drehen
+      if (Math.abs(factor - 1) < 0.03) factor = 1;
+      factor = Math.max(0.1, factor);
+      if (factor !== 1 || angle !== 0) pts = transformShape(shape, pivot, factor, angle);
+    }
+  }
+  current.points = densify(pts, shape.closed, current.linePressure, 2.5, shape.smooth);
+}
+
+// ---------- Formen-Werkzeug: Form aufziehen ----------
+function beginShapeDrag(p) {
+  hold.stop();
+  shapeDrag = { start: [p[0], p[1]], end: [p[0], p[1]] };
+}
+
+// Die Striche der Form, wie sie gerade aufgezogen ist (meist einer, beim Koordinatensystem mehrere)
+function shapeStrokes(drag) {
+  const st = tools.shape;
+  const fill = FILL_MODES.find((f) => f.id === st.fill) || FILL_MODES[0];
+  return shapeFromDrag(st.kind, drag.start, drag.end, st.size).map((poly) => {
+    const filled = poly.closed && fillable(st.kind) && fill.alpha > 0;
+    const stroke = createStroke({
+      tool: 'pen',
+      penType: 'ballpoint',
+      color: st.color,
+      size: st.size,
+      simulatePressure: false,
+      shape: st.kind,
+      fill: filled ? st.color : null,
+      fillAlpha: filled ? fill.alpha : 0,
+    });
+    stroke.points = densify(poly.pts, poly.closed, 0.5, 2.5, poly.smooth);
+    return finishStroke(stroke);
+  });
+}
+
+function updateShapeDrag(p) {
+  shapeDrag.end = [p[0], p[1]];
+  const strokes = shapeStrokes(shapeDrag);
+  const box = strokes.reduce((acc, s) => (s.box ? unionBox(acc, s.box) : acc), null);
+  if (!box) return renderer.setOverlay(null);
+  const [x0, y0] = view.toScreen(box.minX, box.minY + currentTop);
+  const [x1, y1] = view.toScreen(box.maxX, box.maxY + currentTop);
+  const index = doc.pages.indexOf(currentPage);
+  renderer.setOverlay({
+    box: { minX: x0, minY: y0, maxX: x1, maxY: y1 },
+    draw(ctx, rend) {
+      rend.enterPage(ctx, index);
+      for (const s of strokes) fillStroke(ctx, s);
+    },
+  });
+}
+
+function finishShapeDrag() {
+  const drag = shapeDrag;
+  shapeDrag = null;
+  const length = Math.hypot(drag.end[0] - drag.start[0], drag.end[1] - drag.start[1]) * view.scale;
+  if (length < 12 || !doc.pages.includes(currentPage)) {
+    renderer.setOverlay(null);
+    if (length < 12) toast('Zum Zeichnen die Form mit dem Stift aufziehen');
+    return;
+  }
+  const strokes = shapeStrokes(drag);
+  for (const s of strokes) s.z = nextZ++;
+  currentPage.strokes.push(...strokes); // höchstes z -> ans Ende
+  renderer.setOverlay(null);
+  renderer.renderNow();
+  history.push({ strokes: [{ page: currentPage, added: strokes, removed: [] }] });
+  pages.strokesChanged();
+  markDirty([currentPage]);
+}
+
+// Änderungen vom Lasso übernehmen: Striche ersetzen, als EIN Schritt rückgängig machbar, speichern
+function commitChanges(changes) {
+  for (const c of changes) {
+    removeStrokes(c.page.strokes, c.removed);
+    insertStrokes(c.page.strokes, c.added);
+  }
+  history.push({ strokes: changes });
+  renderer.requestRender();
+  pages.strokesChanged();
+  markDirty([...new Set(changes.map((c) => c.page))]);
 }
 
 // Radieren an Stelle (x, y):
@@ -433,14 +558,16 @@ function applyAction(action, forward) {
 
 function undo() {
   if (textEditor?.active) return textEditor.undo(); // beim Tippen: Tippen rückgängig
-  if (current || erasing) return; // nicht mitten im Schreiben
+  if (current || erasing || shapeDrag) return; // nicht mitten im Schreiben
+  lasso.clear();
   const action = history.undo();
   if (action) applyAction(action, false);
 }
 
 function redo() {
   if (textEditor?.active) return textEditor.undo(true);
-  if (current || erasing) return;
+  if (current || erasing || shapeDrag) return;
+  lasso.clear();
   const action = history.redo();
   if (action) applyAction(action, true);
 }
@@ -453,6 +580,7 @@ function currentIndex() {
 
 // Seiten hinzufügen/löschen/verschieben: immer als EIN Schritt zum Rückgängigmachen
 function changePages(fn) {
+  lasso.clear();
   const before = [...doc.pages];
   fn(doc.pages);
   history.push({ pages: { before, after: [...doc.pages] } });
@@ -577,6 +705,7 @@ function unionBox(a, b) {
 function afterViewChange() {
   renderer.requestRender();
   textEditor?.place();
+  lasso?.place();
   zoomButton.textContent = `${Math.round((view.scale / view.fitScale) * 100)} %`;
   pages?.onViewChange();
   scheduleSession();
@@ -633,6 +762,19 @@ onFontsChanged(() => {
 });
 loadFonts();
 
+// ---------- Lasso (siehe lasso.js) ----------
+lasso = setupLasso({
+  stage,
+  view,
+  doc,
+  renderer,
+  tools,
+  commit: commitChanges,
+  newZ: () => nextZ++,
+  currentIndex,
+  toast,
+});
+
 // ---------- Werkzeugleiste ----------
 let toolBeforeEraser = tools.tool === 'highlighter' ? 'highlighter' : 'pen';
 const toolbar = setupToolbar({
@@ -640,11 +782,13 @@ const toolbar = setupToolbar({
   // Radierer in der Leiste gewählt = Stift radiert ab jetzt auch ohne Knopf
   onToolChange(tool) {
     if (tool !== 'text') textEditor.finish();
+    if (tool !== 'lasso') lasso.clear();
     if (tool !== 'eraser') toolBeforeEraser = tool;
     input.setStickyEraser(tool === 'eraser');
   },
   // "Seite leeren" leert die Seite, die gerade in der Mitte zu sehen ist
   onClear() {
+    lasso.clear();
     const page = doc.pages[currentIndex()];
     if (page.strokes.length === 0) return;
     history.push({ strokes: [{ page, added: [], removed: [...page.strokes] }] }); // kann man rückgängig machen
@@ -709,8 +853,11 @@ const wheel = setupWheel({
       }
     } else if (act === 'color') {
       // Farbe gilt für den aktuellen Stift. War der Radierer an, geht's zurück zum Stift.
-      if (tools.tool === 'eraser' || tools.tool === 'text') toolbar.setTool(toolBeforeEraser === 'highlighter' ? 'highlighter' : 'pen');
-      settingsOf(tools, activeStyle(tools).type).color = id;
+      if (tools.tool === 'shape') tools.shape.color = id;
+      else {
+        if (!['pen', 'highlighter'].includes(tools.tool)) toolbar.setTool(toolBeforeEraser === 'highlighter' ? 'highlighter' : 'pen');
+        settingsOf(tools, activeStyle(tools).type).color = id;
+      }
     } else if (act === 'fav') {
       toolbar.applyFavorite(tools.favorites[Number(id)]);
     }
@@ -731,6 +878,12 @@ window.addEventListener('keydown', (e) => {
   else if (key === 'y' || (key === 'z' && e.shiftKey)) redo();
   else return;
   e.preventDefault();
+});
+
+// Am PC: Entf, Strg+C/X/V/D und Esc für die Lasso-Auswahl
+window.addEventListener('keydown', (e) => {
+  if (home.open || document.querySelector('.dlg-back') || textEditor.active) return;
+  if ((tools.tool === 'lasso' || lasso.active) && lasso.onKey(e)) e.preventDefault();
 });
 
 // Am PC: Bild auf/ab = Seite vor/zurück
@@ -1009,7 +1162,9 @@ async function openNote(id, savedView = null) {
   stopScrollAnimation();
   toolbar.closePopup();
   pages.closeAll();
+  lasso.clear();
   current = null;
+  shapeDrag = null;
   erasing = null;
   note = meta;
   doc.load(loaded.length ? loaded : [createPage(meta.firstTemplate || DEFAULT_TEMPLATE)]);
@@ -1070,6 +1225,7 @@ function defaultTitle() {
 async function leaveNote() {
   if (!note) return;
   textEditor.finish();
+  lasso.clear();
   if (current) app.endStroke();
   if (erasing) app.endErase();
   const leaving = note;
@@ -1155,3 +1311,6 @@ function loadJSON(key, fallback) {
 function saveJSON(key, value) {
   saveSetting(key, JSON.stringify(value));
 }
+
+// Nur beim Entwickeln: von der Browser-Konsole aus hineinschauen können
+if (import.meta.env.DEV) window.federleicht = { doc, tools, view, history };

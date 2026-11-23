@@ -39,6 +39,7 @@ export const SIZE_RANGE = {
   felt: { min: 2.5, max: 16 },
   brush: { min: 4, max: 32 },
   highlighter: { min: 8, max: 44 },
+  shape: { min: 0.8, max: 12 },
   eraser: { min: 6, max: 50 }, // Bildschirm-Pixel (Radius)
 };
 
@@ -46,7 +47,7 @@ export const MAX_FAVORITES = 5;
 const MAX_RECENT = 8;
 
 const DEFAULTS = {
-  tool: 'pen',            // 'pen' | 'highlighter' | 'eraser' | 'text'
+  tool: 'pen',            // 'pen' | 'highlighter' | 'eraser' | 'text' | 'shape' | 'lasso'
   penType: 'ballpoint',   // Kuli ist der Standard-Stift
   pens: {
     ballpoint: { color: '#000000', size: 1.8 },
@@ -56,7 +57,9 @@ const DEFAULTS = {
   },
   highlighter: { color: '#ffd400', size: 20, opacity: 0.45 },
   eraser: { mode: 'stroke', size: 12, onlyHighlighter: false },
-  text: { f: 'sans', s: 22.4, c: '#000000' }, // Schrift für neue Textfelder (s in Seiten-Einheiten, 22,4 = 14 pt)
+  text: { f: 'sans', s: 22.4, c: '#000000' },
+  shape: { kind: 'rect', color: '#1971c2', size: 2.4, fill: 'none' }, // Formen-Werkzeug (siehe shapes.js)
+  lasso: { mode: 'free', what: 'all' },  // Lasso: Freihand oder Rechteck; alles, nur Handschrift oder nur Text // Schrift für neue Textfelder (s in Seiten-Einheiten, 22,4 = 14 pt)
   straighten: true,       // gerade Linien durch Stillhalten am Strichende
   recent: [],             // zuletzt benutzte eigene Farben
   favorites: [],          // Lieblingsstifte: { type, color, size, opacity? }
@@ -77,12 +80,14 @@ export function loadTools() {
   return {
     ...DEFAULTS,
     ...saved,
-    tool: ['pen', 'highlighter', 'eraser', 'text'].includes(saved.tool) ? saved.tool : DEFAULTS.tool,
+    tool: ['pen', 'highlighter', 'eraser', 'text', 'shape', 'lasso'].includes(saved.tool) ? saved.tool : DEFAULTS.tool,
     penType: pens[saved.penType] ? saved.penType : DEFAULTS.penType,
     pens,
     highlighter: { ...DEFAULTS.highlighter, ...saved.highlighter },
     eraser: { ...DEFAULTS.eraser, ...saved.eraser },
     text: { ...DEFAULTS.text, ...saved.text },
+    shape: { ...DEFAULTS.shape, ...saved.shape },
+    lasso: { ...DEFAULTS.lasso, ...saved.lasso },
     recent: Array.isArray(saved.recent) ? saved.recent : [],
     favorites: Array.isArray(saved.favorites) ? saved.favorites : [],
   };
@@ -105,6 +110,7 @@ export function activeStyle(tools) {
 
 // Das Einstellungs-Objekt zu einer Stiftart ('highlighter' oder eine aus PEN_TYPES)
 export function settingsOf(tools, type) {
+  if (type === 'shape') return tools.shape;
   return type === 'highlighter' ? tools.highlighter : tools.pens[type];
 }
 
@@ -115,7 +121,7 @@ export function rememberColor(tools, color) {
 
 // Ist dieser Favorit genau der Stift, der gerade eingestellt ist?
 export function isActiveFavorite(tools, fav) {
-  if (tools.tool === 'eraser' || tools.tool === 'text') return false;
+  if (!['pen', 'highlighter'].includes(tools.tool)) return false;
   const s = activeStyle(tools);
   return fav.type === s.type && fav.color === s.color && Math.abs(fav.size - s.size) < 0.01;
 }

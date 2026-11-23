@@ -30,6 +30,7 @@ import '@fontsource/caveat/latin-700.css';
 import '@fontsource/patrick-hand/latin-400.css';
 
 import { displayColor, highlighterColor, inkTheme } from './ink.js';
+import { apply as applyMatrix, scaleOf } from './geometry.js';
 
 // Die Schriftarten. Die meisten liegen in der App selbst (funktionieren also offline).
 export const FONTS = [
@@ -253,6 +254,56 @@ export function updateTextBox(item) {
   const { height } = layoutText(item);
   item.box = { minX: item.x, minY: item.y, maxX: item.x + item.w, maxY: item.y + height };
   return item;
+}
+
+// ---------- Lasso: verschieben, vergrößern, Farbe ----------
+
+// Verwandelte Kopie eines Textfelds. Text wird nicht gedreht: Er wandert mit (seine Mitte
+// folgt der Matrix) und wird mit vergrößert/verkleinert (Schrift und Breite).
+export function transformText(item, m) {
+  const k = scaleOf(m);
+  const cx = (item.box.minX + item.box.maxX) / 2;
+  const cy = (item.box.minY + item.box.maxY) / 2;
+  const [nx, ny] = applyMatrix(m, [cx, cy]);
+  const round = (v) => Math.round(v * 100) / 100;
+  const copy = {
+    ...item,
+    w: Math.max(MIN_WIDTH * Math.min(1, k), item.w * k),
+    base: round(item.base * k),
+    paras: Math.abs(k - 1) < 1e-4 ? item.paras : item.paras.map((p) => ({ ...p, runs: p.runs.map((r) => ({ ...r, s: round(r.s * k) })) })),
+    box: null,
+  };
+  delete copy.hidden;
+  updateTextBox(copy);
+  const h = copy.box.maxY - copy.box.minY;
+  copy.x = nx - copy.w / 2;
+  copy.y = ny - h / 2;
+  return updateTextBox(copy);
+}
+
+// Wo steht wirklich Text? (Das Textfeld selbst ist oft viel breiter als die Zeilen darin.)
+export function textContentBox(item) {
+  const layout = layoutText(item);
+  let minX = Infinity;
+  let maxX = -Infinity;
+  for (const line of layout.lines) {
+    const last = line.segs[line.segs.length - 1];
+    const start = line.marker ? 0 : line.x;
+    const end = last ? line.x + last.x + (/\s+$/.test(last.text) ? textWidth(last.run, last.text.trimEnd()) : last.w) : line.x;
+    if (end <= start && !line.marker) continue;
+    minX = Math.min(minX, start);
+    maxX = Math.max(maxX, end);
+  }
+  if (minX === Infinity) {
+    minX = 0;
+    maxX = Math.min(item.w, 40);
+  }
+  return { minX: item.x + minX, minY: item.box.minY, maxX: item.x + maxX, maxY: item.box.maxY };
+}
+
+// Kopie mit neuer Schriftfarbe für den ganzen Text
+export function recolorText(item, color) {
+  return updateTextBox({ ...item, paras: item.paras.map((p) => ({ ...p, runs: p.runs.map((r) => ({ ...r, c: color })) })), box: null });
 }
 
 // ---------- Malen ----------

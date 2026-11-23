@@ -15,8 +15,9 @@ import {
 import { penSVG, isLight } from './pens.js';
 import { createColorPicker } from './colorpicker.js';
 import { paint } from './paint.js';
+import { SHAPE_KINDS, FILL_MODES, shapeFromDrag, densify, fillable } from './shapes.js';
 
-const NAMES = { highlighter: 'Textmarker', eraser: 'Radierer' };
+const NAMES = { highlighter: 'Textmarker', eraser: 'Radierer', shape: 'Formen', lasso: 'Lasso' };
 for (const t of PEN_TYPES) NAMES[t.id] = t.name;
 export const penName = (type) => NAMES[type] || type;
 
@@ -28,6 +29,11 @@ const ICON = {
   clock: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/></svg>',
   stroke: '<svg viewBox="0 0 24 24"><path d="M3 15c3-6 6-6 9-2s6 4 9-2" stroke-dasharray="2.5 3"/></svg>',
   area: '<svg viewBox="0 0 24 24"><path d="M3 15c2-4 3.5-5 5-4.5M16 13.5c1.6.6 3.3-.2 5-3.5"/><circle cx="12" cy="12" r="3.6" stroke-dasharray="1.5 1.5"/></svg>',
+  free: '<svg viewBox="0 0 24 24"><path d="M12 4.5c4.4 0 7.5 2.1 7.5 4.9s-3.1 4.9-7.5 4.9-7.5-2.1-7.5-4.9S7.6 4.5 12 4.5z" stroke-dasharray="2.4 2.2"/><path d="M7.6 13.6c-.9 1.4-.8 3.2.8 4 1.5.6 1.7 2 1 3"/></svg>',
+  rect: '<svg viewBox="0 0 24 24"><rect x="4" y="5.5" width="16" height="13" rx="1.5" stroke-dasharray="2.4 2.2"/></svg>',
+  all: '<svg viewBox="0 0 24 24"><path d="M3 17.5c2-4.5 4-4.5 5.5-1.5s3.5 2.5 5-1"/><path d="M14 5.5h7M17.5 5.5v7"/></svg>',
+  ink: '<svg viewBox="0 0 24 24"><path d="M3.5 15c3-6 6-6 8.5-2s5.5 4 8.5-2"/></svg>',
+  text: '<svg viewBox="0 0 24 24"><path d="M5 7V5h14v2M12 5v14M9 19h6"/></svg>',
 };
 
 export function setupToolbar({ tools, onToolChange, onClear }) {
@@ -40,7 +46,7 @@ export function setupToolbar({ tools, onToolChange, onClear }) {
   let picker = null;
 
   // Welche Stift-Einstellungen bearbeitet das offene Popup?
-  const editType = () => (openFor === 'highlighter' ? 'highlighter' : tools.penType);
+  const editType = () => (openFor === 'highlighter' ? 'highlighter' : openFor === 'shape' ? 'shape' : tools.penType);
   const edited = () => settingsOf(tools, editType());
 
   // ---------- Werkzeug wählen ----------
@@ -59,7 +65,8 @@ export function setupToolbar({ tools, onToolChange, onClear }) {
       const tool = btn.dataset.tool;
       btn.classList.toggle('active', tool === tools.tool);
       btn.setAttribute('aria-pressed', tool === tools.tool);
-      const color = tool === 'pen' ? tools.pens[tools.penType].color : tool === 'highlighter' ? tools.highlighter.color : '';
+      const color =
+        tool === 'pen' ? tools.pens[tools.penType].color : tool === 'highlighter' ? tools.highlighter.color : tool === 'shape' ? tools.shape.color : '';
       if (color) {
         btn.style.setProperty('--swatch', color);
         btn.querySelector('.swatch canvas').dataset.c = color;
@@ -147,7 +154,7 @@ export function setupToolbar({ tools, onToolChange, onClear }) {
     popup.innerHTML = popupBody(tool);
     popup.hidden = false;
     popup.dataset.tool = tool;
-    if (tool !== 'eraser') {
+    if (tool !== 'eraser' && tool !== 'lasso') {
       picker = createColorPicker(
         popup.querySelector('.picker'),
         edited().color,
@@ -202,6 +209,36 @@ export function setupToolbar({ tools, onToolChange, onClear }) {
         ${toggle('onlyHighlighter', 'Nur Textmarker löschen')}
         <button class="danger-btn" data-clear>Seite leeren</button>`;
     }
+    if (tool === 'lasso') {
+      return `${head('Lasso', false)}
+        <div class="sect-label">Form der Auswahl</div>
+        <div class="radio-list">
+          <button data-lmode="free"><i class="radio"></i>${ICON.free}<span>Freihand</span></button>
+          <button data-lmode="rect"><i class="radio"></i>${ICON.rect}<span>Rechteck</span></button>
+        </div>
+        <div class="sect-label">Was auswählen?</div>
+        <div class="radio-list">
+          <button data-lwhat="all"><i class="radio"></i>${ICON.all}<span>Alles</span></button>
+          <button data-lwhat="ink"><i class="radio"></i>${ICON.ink}<span>Nur Handschrift und Formen</span></button>
+          <button data-lwhat="text"><i class="radio"></i>${ICON.text}<span>Nur Textfelder</span></button>
+        </div>
+        <p class="popup-hint">Kurz antippen wählt einen einzelnen Strich. Etwas Kopiertes fügst du ein, indem du mit dem Lasso auf eine freie Stelle tippst.</p>`;
+    }
+    if (tool === 'shape') {
+      return `${head('Formen', false)}
+        <div class="shape-grid">
+          ${SHAPE_KINDS.map((k) => `<button class="shape-btn" data-shape="${k.id}" title="${k.name}" aria-label="${k.name}"><svg viewBox="0 0 24 24">${k.icon}</svg></button>`).join('')}
+        </div>
+        <canvas class="preview"></canvas>
+        ${stepper('size')}
+        <div class="seg-row"><span>Füllung</span><div class="seg">
+          ${FILL_MODES.map((f) => `<button data-fill="${f.id}">${f.name}</button>`).join('')}
+        </div></div>
+        <div class="color-row"></div>
+        <div class="page-dots"></div>
+        <div class="picker" hidden></div>
+        <p class="popup-hint">Tipp: Mit jedem Stift ungefähr zeichnen und am Ende den Stift kurz stillhalten – die Form wird von selbst perfekt.</p>`;
+    }
     const slots = tool === 'pen' ? PEN_TYPES : [{ id: 'highlighter', name: 'Textmarker' }];
     return `${head('', true)}
       <div class="pen-shelf ${tool === 'pen' ? '' : 'single'}">
@@ -210,7 +247,7 @@ export function setupToolbar({ tools, onToolChange, onClear }) {
       <canvas class="preview"></canvas>
       ${stepper('size')}
       ${tool === 'highlighter' ? stepper('opacity') : ''}
-      ${toggle('straighten', 'Linien begradigen', 'Am Strichende den Stift kurz stillhalten')}
+      ${toggle('straighten', tool === 'pen' ? 'Formen erkennen' : 'Linien begradigen', tool === 'pen' ? 'Am Strichende kurz stillhalten: Linie, Kreis, Rechteck, Dreieck, Pfeil …' : 'Am Strichende den Stift kurz stillhalten')}
       <div class="color-row"></div>
       <div class="page-dots"></div>
       <div class="picker" hidden></div>`;
@@ -297,6 +334,11 @@ export function setupToolbar({ tools, onToolChange, onClear }) {
       sw.checked = sw.dataset.toggle === 'straighten' ? tools.straighten : tools.eraser[sw.dataset.toggle];
     }
 
+    if (tool === 'lasso') {
+      for (const b of popup.querySelectorAll('[data-lmode]')) b.classList.toggle('selected', b.dataset.lmode === tools.lasso.mode);
+      for (const b of popup.querySelectorAll('[data-lwhat]')) b.classList.toggle('selected', b.dataset.lwhat === tools.lasso.what);
+      return;
+    }
     if (tool === 'eraser') {
       for (const b of popup.querySelectorAll('[data-mode]')) b.classList.toggle('selected', b.dataset.mode === tools.eraser.mode);
       const circle = popup.querySelector('.eraser-preview i');
@@ -312,7 +354,12 @@ export function setupToolbar({ tools, onToolChange, onClear }) {
 
     // Stern gefüllt, wenn dieser Stift schon ein Favorit ist
     const fav = tools.favorites.some((f) => f.type === type && f.color === s.color && Math.abs(f.size - s.size) < 0.01);
-    popup.querySelector('[data-star]').classList.toggle('on', fav);
+    popup.querySelector('[data-star]')?.classList.toggle('on', fav);
+    for (const b of popup.querySelectorAll('[data-shape]')) b.classList.toggle('selected', b.dataset.shape === tools.shape.kind);
+    for (const b of popup.querySelectorAll('[data-fill]')) {
+      b.classList.toggle('selected', b.dataset.fill === tools.shape.fill);
+      b.disabled = !fillable(tools.shape.kind);
+    }
 
     // Stifte im Halter in ihrer eigenen Farbe zeichnen, der gewählte steht weiter oben
     for (const b of popup.querySelectorAll('[data-type]')) {
@@ -338,7 +385,8 @@ export function setupToolbar({ tools, onToolChange, onClear }) {
     popup.querySelector('.picker').hidden = !pickerOpen;
     if (picker && !fromPicker) picker.set(s.color);
 
-    drawSample(popup.querySelector('.preview'), { type, ...s });
+    if (tool === 'shape') drawShapeSample(popup.querySelector('.preview'), tools.shape);
+    else drawSample(popup.querySelector('.preview'), { type, ...s });
   }
 
   // Eine Einstellung ändern, speichern, Popup aktualisieren
@@ -362,6 +410,14 @@ export function setupToolbar({ tools, onToolChange, onClear }) {
     }
     if (d.mode) {
       tools.eraser.mode = d.mode;
+      saveTools(tools);
+      refresh();
+    }
+    if (d.shape || d.fill || d.lmode || d.lwhat) {
+      if (d.shape) tools.shape.kind = d.shape;
+      if (d.fill) tools.shape.fill = d.fill;
+      if (d.lmode) tools.lasso.mode = d.lmode;
+      if (d.lwhat) tools.lasso.what = d.lwhat;
       saveTools(tools);
       refresh();
     }
@@ -523,5 +579,35 @@ export function drawSample(canvas, { type, color, size, opacity }) {
   }
   finishStroke(stroke);
   fillStroke(ctx, stroke);
+  setInkTheme(savedTheme.dark, savedTheme.paper);
+}
+
+// Vorschau im Formen-Menü: die gewählte Form mit Farbe, Dicke und Füllung
+function drawShapeSample(canvas, { kind, color, size, fill }) {
+  const dpr = window.devicePixelRatio || 1;
+  const w = canvas.clientWidth;
+  const h = canvas.clientHeight;
+  canvas.width = Math.round(w * dpr);
+  canvas.height = Math.round(h * dpr);
+  const ctx = canvas.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const savedTheme = { ...inkTheme };
+  setInkTheme(false, '#ffffff');
+  ctx.fillStyle = isLight(color) ? '#2b2e35' : '#ffffff';
+  ctx.fillRect(0, 0, w, h);
+  const s = size * 1.25;
+  const m = 12 + s;
+  // Linien quer, Flächen in der Mitte nicht zu breit
+  const wide = ['line', 'arrow', 'double'].includes(kind);
+  const bw = wide ? w - m * 2 : Math.min(w - m * 2, (h - m * 2) * 1.8);
+  const a = wide ? [m, h - m] : [(w - bw) / 2, m];
+  const b = wide ? [w - m, m] : [(w + bw) / 2, h - m];
+  const alpha = (FILL_MODES.find((f) => f.id === fill) || FILL_MODES[0]).alpha;
+  for (const poly of shapeFromDrag(kind, a, b, s)) {
+    const filled = poly.closed && fillable(kind) && alpha > 0;
+    const stroke = createStroke({ penType: 'ballpoint', color, size: s, simulatePressure: false, shape: kind, fill: filled ? color : null, fillAlpha: filled ? alpha : 0 });
+    stroke.points = densify(poly.pts, poly.closed, 0.5, 2, poly.smooth);
+    fillStroke(ctx, finishStroke(stroke));
+  }
   setInkTheme(savedTheme.dark, savedTheme.paper);
 }

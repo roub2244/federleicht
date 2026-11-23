@@ -171,6 +171,12 @@ export function packStroke(s) {
     pts,
     box: s.box,
   };
+  // Formen (Etappe 6): nur speichern, was es gibt – alte Striche bleiben so klein wie vorher
+  if (s.shape) packed.shape = s.shape;
+  if (s.fill && s.fillAlpha > 0) {
+    packed.fill = s.fill;
+    packed.fillAlpha = s.fillAlpha;
+  }
   packCache.set(s, packed);
   return packed;
 }
@@ -193,6 +199,9 @@ export function unpackStroke(d) {
     points,
     layers: null,
     box: d.box || null,
+    shape: d.shape || null,
+    fill: d.fill || null,
+    fillAlpha: d.fillAlpha || 0,
   };
   if (!stroke.box && points.length) finishStroke(stroke); // ohne Rechteck würde er nie gemalt
   // Die gespeicherte Form ist schon "eingepackt" -> beim nächsten Speichern wiederverwenden
