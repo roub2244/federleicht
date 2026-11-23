@@ -14,6 +14,7 @@ import {
 } from './tools.js';
 import { penSVG, isLight } from './pens.js';
 import { createColorPicker } from './colorpicker.js';
+import { paint } from './paint.js';
 
 const NAMES = { highlighter: 'Textmarker', eraser: 'Radierer' };
 for (const t of PEN_TYPES) NAMES[t.id] = t.name;
@@ -58,14 +59,17 @@ export function setupToolbar({ tools, onToolChange, onClear }) {
       const tool = btn.dataset.tool;
       btn.classList.toggle('active', tool === tools.tool);
       btn.setAttribute('aria-pressed', tool === tools.tool);
-      if (tool === 'pen') btn.style.setProperty('--swatch', tools.pens[tools.penType].color);
-      if (tool === 'highlighter') btn.style.setProperty('--swatch', tools.highlighter.color);
+      const color = tool === 'pen' ? tools.pens[tools.penType].color : tool === 'highlighter' ? tools.highlighter.color : '';
+      if (color) {
+        btn.style.setProperty('--swatch', color);
+        btn.querySelector('.swatch canvas').dataset.c = color;
+      }
     }
     favBar.innerHTML = tools.favorites
       .map(
         (f, i) =>
           `<button class="fav${isActiveFavorite(tools, f) ? ' active' : ''}${isLight(f.color) ? ' light' : ''}${f.type === 'highlighter' ? ' hl' : ''}"
-            data-fav="${i}" style="--c:${f.color}" title="${penName(f.type)} – lange drücken zum Entfernen"></button>`
+            data-fav="${i}" title="${penName(f.type)} – lange drücken zum Entfernen">${paint(f.color)}</button>`
       )
       .join('');
     favBar.hidden = tools.favorites.length === 0;
@@ -215,7 +219,7 @@ export function setupToolbar({ tools, onToolChange, onClear }) {
   function stepper(kind) {
     return `<div class="stepper" data-stepper="${kind}">
       <button data-step="-1" aria-label="weniger">${ICON.minus}</button>
-      <div class="st-track ${kind}"><span class="st-thumb"></span></div>
+      <div class="st-track ${kind}">${kind === 'opacity' ? paint('', 'checker') : ''}<span class="st-thumb"></span></div>
       <button data-step="1" aria-label="mehr">${ICON.plus}</button>
     </div>`;
   }
@@ -303,7 +307,7 @@ export function setupToolbar({ tools, onToolChange, onClear }) {
     const s = edited();
     popup.querySelector('.popup-title').textContent = penName(type);
     popup.style.setProperty('--current', s.color);
-    if (tool === 'highlighter') popup.querySelector('.st-track.opacity').style.setProperty('--c', s.color);
+    if (tool === 'highlighter') popup.querySelector('.st-track.opacity canvas').dataset.c = s.color;
 
     // Stern gefüllt, wenn dieser Stift schon ein Favorit ist
     const fav = tools.favorites.some((f) => f.type === type && f.color === s.color && Math.abs(f.size - s.size) < 0.01);
@@ -326,7 +330,7 @@ export function setupToolbar({ tools, onToolChange, onClear }) {
     popup.querySelector('.color-row').innerHTML =
       colors.map((c) => swatch(c, c === s.color)).join('') +
       (colors.length === 0 ? '<span class="empty">Noch keine eigenen Farben</span>' : '') +
-      `<button class="rainbow${pickerOpen ? ' selected' : ''}" data-rainbow aria-label="Eigene Farbe"></button>`;
+      `<button class="rainbow${pickerOpen ? ' selected' : ''}" data-rainbow aria-label="Eigene Farbe">${paint('', 'rainbow')}</button>`;
     popup.querySelector('.page-dots').innerHTML = pages
       .map((_, i) => `<button data-page="${i}" class="${i === colorPage ? 'selected' : ''}" aria-label="Farbseite ${i}">${i === 0 ? ICON.clock : ''}</button>`)
       .join('');
@@ -460,7 +464,7 @@ export function setupToolbar({ tools, onToolChange, onClear }) {
 }
 
 function swatch(color, selected) {
-  return `<button class="swatch-btn${selected ? ' selected' : ''}${isLight(color) ? ' light' : ''}" data-color="${color}" style="--c:${color}" aria-label="Farbe ${color}"></button>`;
+  return `<button class="swatch-btn${selected ? ' selected' : ''}${isLight(color) ? ' light' : ''}" data-color="${color}" aria-label="Farbe ${color}">${paint(color, selected ? 'check' : '')}</button>`;
 }
 
 // Eine Beispiel-Schleife mit den echten Stift-Einstellungen in ein kleines Canvas malen

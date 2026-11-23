@@ -7,6 +7,8 @@
 //   - der Regenbogen-Balken wählt den Farbton
 //   - das große Feld wählt Sättigung (nach rechts) und Helligkeit (nach oben)
 
+import { paint } from './paint.js';
+
 export function hsvToHex(h, s, v) {
   const f = (n) => {
     const k = (n + h / 60) % 6;
@@ -66,14 +68,14 @@ export function createColorPicker(container, initialHex, onChange, onCommit) {
     <div class="tabs cp-tabs"><button data-cp="grid">Raster</button><button data-cp="spectrum">Spektrum</button></div>
     <div class="cp-grid" data-cp-panel="grid">
       ${gridColors()
-        .map((row) => row.map((c) => `<button data-grid="${c}" style="background:${c}" aria-label="${c}"></button>`).join(''))
+        .map((row) => row.map((c) => `<button data-grid="${c}" aria-label="${c}">${paint(c)}</button>`).join(''))
         .join('')}
     </div>
     <div class="cp-spectrum" data-cp-panel="spectrum">
-      <div class="cp-field"><div class="cp-thumb"></div></div>
-      <div class="cp-hue"><div class="cp-thumb"></div></div>
+      <div class="cp-field">${paint('', 'field', ' data-hue="0"')}<div class="cp-thumb">${paint()}</div></div>
+      <div class="cp-hue">${paint('', 'hue')}<div class="cp-thumb">${paint()}</div></div>
     </div>
-    <div class="cp-info"><i class="cp-preview"></i><input class="cp-hex" maxlength="7" spellcheck="false" /></div>`;
+    <div class="cp-info"><i class="cp-preview">${paint()}</i><input class="cp-hex" maxlength="7" spellcheck="false" /></div>`;
 
   // Umschalten zwischen Raster und Spektrum
   let mode = 'grid';
@@ -105,13 +107,15 @@ export function createColorPicker(container, initialHex, onChange, onCommit) {
   // exact: genau diese HEX-Farbe anzeigen (Umrechnen nach HSV und zurück kann um 1 daneben liegen)
   function render(exact) {
     const hex = exact || hsvToHex(hsv.h, hsv.s, hsv.v);
-    field.style.setProperty('--hue', hsv.h);
-    field.firstElementChild.style.left = `${hsv.s * 100}%`;
-    field.firstElementChild.style.top = `${(1 - hsv.v) * 100}%`;
-    field.firstElementChild.style.background = hex;
-    hue.firstElementChild.style.left = `${(hsv.h / 360) * 100}%`;
-    hue.firstElementChild.style.background = `hsl(${hsv.h} 100% 50%)`;
-    preview.style.background = hex;
+    field.querySelector('[data-paint]').dataset.hue = Math.round(hsv.h);
+    const fieldThumb = field.querySelector('.cp-thumb');
+    fieldThumb.style.left = `${hsv.s * 100}%`;
+    fieldThumb.style.top = `${(1 - hsv.v) * 100}%`;
+    fieldThumb.firstElementChild.dataset.c = hex;
+    const hueThumb = hue.querySelector('.cp-thumb');
+    hueThumb.style.left = `${(hsv.h / 360) * 100}%`;
+    hueThumb.firstElementChild.dataset.c = `hsl(${Math.round(hsv.h)} 100% 50%)`;
+    preview.firstElementChild.dataset.c = hex;
     for (const cell of container.querySelectorAll('[data-grid]')) cell.classList.toggle('selected', cell.dataset.grid === hex);
     if (document.activeElement !== hexInput) hexInput.value = hex;
     return hex;
