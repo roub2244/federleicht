@@ -12,6 +12,8 @@ import { Debug } from './debug.js';
 import { HoldDetector, linePoints, averagePressure, longEnough } from './straighten.js';
 import { History } from './history.js';
 import { LiftTracker } from './lift.js';
+import { setupTextEditor } from './texteditor.js';
+import { loadFonts, onFontsChanged, updateTextBox } from './text.js';
 import { loadTools, saveTools, activeStyle, settingsOf } from './tools.js';
 import { setupToolbar } from './toolbar.js';
 import { setupWheel } from './wheel.js';
@@ -43,6 +45,7 @@ let lastErase = null;    // letzte Radierer-Position
 let erasing = null;      // was beim aktuellen Radieren passiert ist: Seite -> { added: [], removed: [] }
 let pages = null;        // Seiten-Menüs (siehe pages.js), wird weiter unten eingerichtet
 let nextZ = 1;           // z-Nummer für den nächsten neuen Strich (höher = weiter oben)
+let textEditor = null;   // Textfelder bearbeiten (siehe texteditor.js), wird weiter unten eingerichtet
 let home = null;         // Startbildschirm (siehe home.js), wird weiter unten eingerichtet
 
 // Rückgängig/Wiederholen: bei jeder Änderung die Knöpfe an- oder ausgrauen
@@ -223,6 +226,41 @@ const app = {
     afterViewChange();
   },
 
+  // ---------- Text ----------
+  textMode() {
+    return tools.tool === 'text';
+  },
+  textEditing() {
+    return Boolean(textEditor?.active);
+  },
+  // Mit dem Text-Werkzeug getippt (point in Dokument-Koordinaten, client = Bildschirm-Punkt)
+  textTap(point, client) {
+    if (textEditor.active) {
+      textEditor.finish(); // daneben getippt = fertig
+      return;
+    }
+    if (tools.tool !== 'text') return;
+    const index = doc.indexAt(point[1]);
+    const page = doc.pages[index];
+    const y = point[1] - doc.top(index);
+    if (y < 0 || y > PAGE_HEIGHT || point[0] < 0 || point[0] > 1000) return;
+    const hit = textEditor.hitTest(page, point[0], y, 10 / view.scale);
+    if (hit) textEditor.open(page, hit, { at: client });
+    else textEditor.create(page, point[0], y, nextZ++);
+  },
+  // Mit dem Text-Werkzeug gezogen: Textfeld von a bis b (so breit wie gezogen)
+  textDrag(a, b) {
+    if (textEditor.active) return textEditor.finish();
+    if (tools.tool !== 'text') return;
+    const index = doc.indexAt(a[1]);
+    const page = doc.pages[index];
+    const y = Math.min(a[1], b[1]) - doc.top(index);
+    const x = Math.max(0, Math.min(a[0], b[0]));
+    const w = Math.min(1000, Math.max(a[0], b[0])) - x;
+    if (y < 0 || y > PAGE_HEIGHT || w < 40) return;
+    textEditor.create(page, x, y, nextZ++, w, true);
+  },
+
   // Scroll-Sperre an? (dann kein Zoomen und kein seitliches Verrutschen, siehe input.js)
   isLocked() {
     return viewLocked;
@@ -394,12 +432,14 @@ function applyAction(action, forward) {
 }
 
 function undo() {
+  if (textEditor?.active) return textEditor.undo(); // beim Tippen: Tippen rückgängig
   if (current || erasing) return; // nicht mitten im Schreiben
   const action = history.undo();
   if (action) applyAction(action, false);
 }
 
 function redo() {
+  if (textEditor?.active) return textEditor.undo(true);
   if (current || erasing) return;
   const action = history.redo();
   if (action) applyAction(action, true);
@@ -536,6 +576,7 @@ function unionBox(a, b) {
 
 function afterViewChange() {
   renderer.requestRender();
+  textEditor?.place();
   zoomButton.textContent = `${Math.round((view.scale / view.fitScale) * 100)} %`;
   pages?.onViewChange();
   scheduleSession();
@@ -543,12 +584,62 @@ function afterViewChange() {
 
 const input = setupInput(canvas, app);
 
+// ---------- Textfelder (siehe text.js und texteditor.js) ----------
+textEditor = setupTextEditor({
+  stage,
+  view,
+  doc,
+  renderer,
+  tools,
+  // Textfeld fertig: neu (old = null), geändert, oder gelöscht (next = null)
+  onCommit(page, old, next) {
+    const change = { page, added: next ? [next] : [], removed: old ? [old] : [] };
+    if (old && next) page.strokes.splice(page.strokes.indexOf(old), 1, next); // gleiche Stelle = gleiches z
+    else {
+      removeStrokes(page.strokes, change.removed);
+      insertStrokes(page.strokes, change.added);
+    }
+    history.push({ strokes: [change] });
+    renderer.requestRender();
+    pages.strokesChanged();
+    markDirty([page]);
+  },
+  onEditingChange(on) {
+    document.documentElement.classList.toggle('text-editing', on);
+    undoButton.disabled = on ? false : !history.canUndo;
+    redoButton.disabled = on ? false : !history.canRedo;
+  },
+  // Cursor nicht unter der Tastatur oder der Format-Leiste verstecken
+  ensureVisible(rect) {
+    if (!rect) return;
+    const vv = window.visualViewport;
+    const bottom = (vv ? vv.height + vv.offsetTop : window.innerHeight) - 24;
+    const top = stage.getBoundingClientRect().top + 76;
+    if (rect.bottom > bottom) app.panBy(0, bottom - rect.bottom - 40);
+    else if (rect.top < top) app.panBy(0, top - rect.top + 20);
+  },
+});
+// Beim Tippen auf Rückgängig/Wiederholen soll das Eingabefeld nicht den Fokus verlieren
+for (const b of [undoButton, redoButton]) {
+  b.addEventListener('pointerdown', (e) => {
+    if (textEditor.active) e.preventDefault();
+  });
+}
+// Eingebaute Schriften laden; wenn sie da sind, Texte neu vermessen und malen
+onFontsChanged(() => {
+  for (const page of doc.pages) for (const s of page.strokes) if (s.tool === 'text') updateTextBox(s);
+  renderer.requestRender();
+  textEditor.place();
+});
+loadFonts();
+
 // ---------- Werkzeugleiste ----------
 let toolBeforeEraser = tools.tool === 'highlighter' ? 'highlighter' : 'pen';
 const toolbar = setupToolbar({
   tools,
   // Radierer in der Leiste gewählt = Stift radiert ab jetzt auch ohne Knopf
   onToolChange(tool) {
+    if (tool !== 'text') textEditor.finish();
     if (tool !== 'eraser') toolBeforeEraser = tool;
     input.setStickyEraser(tool === 'eraser');
   },
@@ -571,6 +662,7 @@ const prefersDark = matchMedia('(prefers-color-scheme: dark)');
 let darkPaperSetting = readSetting('darkPaper', 'on') === 'on';
 
 function applyTheme() {
+  textEditor.themeChanged();
   renderer.readColors();
   renderer.darkPaper = prefersDark.matches && darkPaperSetting;
   document.documentElement.classList.toggle('dark-paper', renderer.darkPaper);
@@ -617,7 +709,7 @@ const wheel = setupWheel({
       }
     } else if (act === 'color') {
       // Farbe gilt für den aktuellen Stift. War der Radierer an, geht's zurück zum Stift.
-      if (tools.tool === 'eraser') toolbar.setTool(toolBeforeEraser);
+      if (tools.tool === 'eraser' || tools.tool === 'text') toolbar.setTool(toolBeforeEraser === 'highlighter' ? 'highlighter' : 'pen');
       settingsOf(tools, activeStyle(tools).type).color = id;
     } else if (act === 'fav') {
       toolbar.applyFavorite(tools.favorites[Number(id)]);
@@ -632,7 +724,7 @@ redoButton.addEventListener('click', redo);
 
 // Am PC: Strg+Z = Rückgängig, Strg+Y oder Strg+Umschalt+Z = Wiederholen
 window.addEventListener('keydown', (e) => {
-  if (home.open || document.querySelector('.dlg-back')) return;
+  if (home.open || document.querySelector('.dlg-back') || textEditor.active) return; // beim Tippen macht das Eingabefeld selbst Strg+Z
   if (!(e.ctrlKey || e.metaKey)) return;
   const key = e.key.toLowerCase();
   if (key === 'z' && !e.shiftKey) undo();
@@ -643,7 +735,7 @@ window.addEventListener('keydown', (e) => {
 
 // Am PC: Bild auf/ab = Seite vor/zurück
 window.addEventListener('keydown', (e) => {
-  if (home.open || document.querySelector('.dlg-back')) return;
+  if (home.open || document.querySelector('.dlg-back') || textEditor.active) return;
   if (e.key === 'PageDown') goTo(Math.min(doc.count - 1, currentIndex() + 1));
   else if (e.key === 'PageUp') goTo(Math.max(0, currentIndex() - 1));
 });
@@ -977,6 +1069,7 @@ function defaultTitle() {
 // Notiz zumachen: alles speichern. Eine neue, leer gebliebene Notiz wird wieder gelöscht.
 async function leaveNote() {
   if (!note) return;
+  textEditor.finish();
   if (current) app.endStroke();
   if (erasing) app.endErase();
   const leaving = note;

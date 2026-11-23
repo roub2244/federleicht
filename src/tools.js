@@ -46,7 +46,7 @@ export const MAX_FAVORITES = 5;
 const MAX_RECENT = 8;
 
 const DEFAULTS = {
-  tool: 'pen',            // 'pen' | 'highlighter' | 'eraser'
+  tool: 'pen',            // 'pen' | 'highlighter' | 'eraser' | 'text'
   penType: 'ballpoint',   // Kuli ist der Standard-Stift
   pens: {
     ballpoint: { color: '#000000', size: 1.8 },
@@ -56,6 +56,7 @@ const DEFAULTS = {
   },
   highlighter: { color: '#ffd400', size: 20, opacity: 0.45 },
   eraser: { mode: 'stroke', size: 12, onlyHighlighter: false },
+  text: { f: 'sans', s: 22.4, c: '#000000' }, // Schrift für neue Textfelder (s in Seiten-Einheiten, 22,4 = 14 pt)
   straighten: true,       // gerade Linien durch Stillhalten am Strichende
   recent: [],             // zuletzt benutzte eigene Farben
   favorites: [],          // Lieblingsstifte: { type, color, size, opacity? }
@@ -76,11 +77,12 @@ export function loadTools() {
   return {
     ...DEFAULTS,
     ...saved,
-    tool: ['pen', 'highlighter', 'eraser'].includes(saved.tool) ? saved.tool : DEFAULTS.tool,
+    tool: ['pen', 'highlighter', 'eraser', 'text'].includes(saved.tool) ? saved.tool : DEFAULTS.tool,
     penType: pens[saved.penType] ? saved.penType : DEFAULTS.penType,
     pens,
     highlighter: { ...DEFAULTS.highlighter, ...saved.highlighter },
     eraser: { ...DEFAULTS.eraser, ...saved.eraser },
+    text: { ...DEFAULTS.text, ...saved.text },
     recent: Array.isArray(saved.recent) ? saved.recent : [],
     favorites: Array.isArray(saved.favorites) ? saved.favorites : [],
   };
@@ -113,7 +115,7 @@ export function rememberColor(tools, color) {
 
 // Ist dieser Favorit genau der Stift, der gerade eingestellt ist?
 export function isActiveFavorite(tools, fav) {
-  if (tools.tool === 'eraser') return false;
+  if (tools.tool === 'eraser' || tools.tool === 'text') return false;
   const s = activeStyle(tools);
   return fav.type === s.type && fav.color === s.color && Math.abs(fav.size - s.size) < 0.01;
 }

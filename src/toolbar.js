@@ -79,6 +79,7 @@ export function setupToolbar({ tools, onToolChange, onClear }) {
     btn.addEventListener('click', () => {
       const tool = btn.dataset.tool;
       if (tools.tool !== tool) setTool(tool);
+      else if (tool === 'text') return; // Text hat kein eigenes Popup – die Format-Leiste kommt beim Tippen
       else if (openFor === tool) closePopup();
       else openPopup(tool);
     });

@@ -17,6 +17,7 @@
 // in ein Float32Array (eine Liste von Kommazahlen mit je 4 Byte).
 
 import { finishStroke } from './ink.js';
+import { packText, reviveText } from './text.js';
 
 const DB_NAME = 'federleicht';
 const DB_VERSION = 1;
@@ -148,6 +149,11 @@ const packCache = new WeakMap(); // fertige Striche ändern sich nie -> nur einm
 export function packStroke(s) {
   let packed = packCache.get(s);
   if (packed) return packed;
+  if (s.tool === 'text') {
+    packed = packText(s);
+    packCache.set(s, packed);
+    return packed;
+  }
   const pts = new Float32Array(s.points.length * 3);
   s.points.forEach((p, i) => {
     pts[i * 3] = p[0];
@@ -172,6 +178,7 @@ export function packStroke(s) {
 // Ausgepackter Strich: Die fertige Form (layers) berechnet ink.js erst, wenn er gemalt wird.
 // So öffnet sich auch ein volles Heft schnell.
 export function unpackStroke(d) {
+  if (d.tool === 'text') return reviveText(d);
   const pts = d.pts instanceof Float32Array ? d.pts : Float32Array.from(d.pts || []);
   const points = [];
   for (let i = 0; i + 2 < pts.length; i += 3) points.push([pts[i], pts[i + 1], pts[i + 2]]);
@@ -233,7 +240,7 @@ export async function exportAll() {
     folders,
     // Vorschaubilder lassen wir weg, die malt die App beim nächsten Öffnen neu
     notes: notes.map(({ thumbLight, thumbDark, ...n }) => n),
-    pages: pages.map((p) => ({ ...p, strokes: p.strokes.map((s) => ({ ...s, pts: toBase64(s.pts) })) })),
+    pages: pages.map((p) => ({ ...p, strokes: p.strokes.map((s) => (s.pts ? { ...s, pts: toBase64(s.pts) } : s)) })),
   };
 }
 
@@ -245,7 +252,7 @@ export async function importAll(data) {
   for (const f of data.folders || []) tx.objectStore('folders').put(f);
   for (const n of data.notes) tx.objectStore('notes').put({ ...n, thumbStale: true });
   for (const p of data.pages || []) {
-    tx.objectStore('pages').put({ ...p, strokes: p.strokes.map((s) => ({ ...s, pts: fromBase64(s.pts) })) });
+    tx.objectStore('pages').put({ ...p, strokes: p.strokes.map((s) => (s.pts ? { ...s, pts: fromBase64(s.pts) } : s)) });
   }
   await finished(tx);
   return data.notes.length;

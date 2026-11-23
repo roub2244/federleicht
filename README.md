@@ -117,6 +117,9 @@ npm run preview    # zeigt die fertige Version an (mit Service Worker)
 | `src/pages.js` | Vorlagen-Menü, „Seite hinzufügen“, Seitenanzeige und die Seitenübersicht mit Ziehen zum Umsortieren |
 | `src/input.js` | **Das Herz für den S Pen.** Unterscheidet Stift, Finger und Handballen und erkennt den Stiftknopf |
 | `src/ink.js` | Macht aus Stiftpunkten mit perfect-freehand eine glatte Linie (je Stiftart andere Einstellungen). Prüft, ob der Radierer trifft, und schneidet beim Bereichs-Radierer Löcher in Striche |
+| `src/lift.js` | Erkennt, wann der Stift beim Absetzen nur noch ganz leicht aufliegt – damit daraus keine Linie wird (z. B. vom i zum i-Punkt) |
+| `src/text.js` | **Textfelder:** Schriftarten (eingebaut, offline), Zeilenumbruch und Malen von getipptem Text aufs Canvas |
+| `src/texteditor.js` | Textfeld bearbeiten: Eingabefeld über der Seite, Format-Leiste (Schrift, Größe, fett, kursiv, Farbe, Listen …), Verschieben und Breite ändern |
 | `src/straighten.js` | Gerade Linien: erkennt mit einem Timer, ob der Stift stillsteht, und macht aus dem Strich eine Strecke |
 | `src/view.js` | Die „Kamera": rechnet zwischen Bildschirm und Blatt um (Zoom und Verschieben) |
 | `src/renderer.js` | Malt alles aufs Canvas, und zwar so, dass möglichst wenig neu gemalt werden muss |
