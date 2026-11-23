@@ -87,6 +87,10 @@
 
       <div class="actions">
         <button id="btn-install" class="btn btn-accent" hidden>App installieren</button>
+        <!-- Claude fragen (Seite kopieren + Federleicht-Helfer öffnen) – siehe claudemenu.js -->
+        <button id="btn-claude" class="icon-btn claude-btn" title="Claude fragen" aria-label="Claude fragen">
+          <svg viewBox="0 0 24 24"><path d="M12 3.2 13.7 9l5.8 2.1-5.8 2.1L12 19l-1.7-5.8-5.8-2.1L10.3 9z" /><path d="M18.6 3.2v3.2M17 4.8h3.2M5.6 16.6v2.8M4.2 18h2.8" stroke-width="1.5" /></svg>
+        </button>
         <!-- Einfügen (Bild, Foto, PDF) und Teilen (PDF, Bild) – siehe mediamenu.js -->
         <button id="btn-insert" class="icon-btn" title="Einfügen: Bild, Foto, PDF" aria-label="Einfügen">
           <svg viewBox="0 0 24 24"><rect x="3.5" y="5" width="13" height="13" rx="2.5" /><circle cx="8.3" cy="9.6" r="1.4" /><path d="m4 16 4-3.6 3 2.6 1.8-1.5 3.7 3" /><path d="M19.5 3.5v6M16.5 6.5h6" /></svg>
@@ -124,6 +128,8 @@
     <div id="textbar-pop" class="textbar-pop" hidden></div>
     <!-- Popup "Einfügen" / "Teilen" (wird von mediamenu.js gefüllt) -->
     <div id="media-popup" class="popup media-popup" hidden></div>
+    <!-- Popup "Claude fragen" (wird von claudemenu.js gefüllt) -->
+    <div id="claude-popup" class="popup media-popup claude-popup" hidden></div>
     <!-- Popup mit den Seitenvorlagen (wird von pages.js gefüllt) -->
     <div id="page-popup" class="popup page-popup" hidden></div>
 

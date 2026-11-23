@@ -3573,3 +3573,65 @@ body {
 .nt-state {
   white-space: nowrap;
 }
+
+/* ---------- Claude fragen (claudemenu.js) ---------- */
+/* Knopf: Funkeln im Blau-Violett-Verlauf, damit man ihn sofort findet */
+.claude-btn svg {
+  stroke: var(--accent);
+}
+.claude-btn svg path:first-child {
+  fill: var(--accent-soft);
+}
+.claude-btn.active svg path:first-child,
+.claude-btn:active svg path:first-child {
+  fill: var(--accent);
+}
+
+.claude-popup .popup-title {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+}
+.claude-mark {
+  display: inline-grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 8px;
+  background: var(--accent-grad);
+}
+.claude-mark svg {
+  width: 16px;
+  height: 16px;
+  fill: #fff;
+  stroke: #fff;
+  stroke-width: 1.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.claude-popup .mm-row:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.claude-offline {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin: 4px 0 8px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: var(--chip);
+  color: var(--text);
+  font-size: 13.5px;
+  line-height: 1.4;
+}
+.claude-offline svg {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  fill: none;
+  stroke: var(--muted);
+  stroke-width: 1.7;
+  stroke-linecap: round;
+}

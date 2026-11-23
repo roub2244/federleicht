@@ -22,10 +22,11 @@ import { setupHome } from './home.js';
 import { askText, toast, progressBox, chooseAction } from './dialog.js';
 import { setupLasso } from './lasso.js';
 import { recognizeShape, shapeFromDrag, densify, transformShape, FILL_MODES, fillable } from './shapes.js';
-import { prepareImage, createImageItem, placeMatrix, remember, onMediaLoaded, ensureLoaded, imageIdsOf, fileIdsOf, mediaSettings, pageDark } from './media.js';
+import { prepareImage, createImageItem, placeMatrix, remember, onMediaLoaded, ensureLoaded, imageIdsOf, fileIdsOf, mediaSettings, pageDark, canvasBlob } from './media.js';
 import { importPdf, scheduleSharp } from './pdfdoc.js';
-import { exportPdf, exportImage, fileName, canShareFile, shareFile, downloadFile } from './export.js';
+import { exportPdf, exportImage, renderPage, fileName, canShareFile, shareFile, downloadFile } from './export.js';
 import { setupMediaMenu } from './mediamenu.js';
+import { setupClaudeMenu } from './claudemenu.js';
 
 // ---------- Einstellungen ----------
 // Farbe, Dicke, Stiftart usw. kommen aus der Werkzeugleiste (siehe tools.js)
@@ -57,6 +58,7 @@ let lasso = null;        // Lasso-Auswahl (siehe lasso.js), wird weiter unten ei
 let shapeDrag = null;    // Formen-Werkzeug: Form wird gerade aufgezogen { start, end }
 let swallowPen = false;  // dieser Stift-Strich hebt nur eine Auswahl auf (z. B. ein eingefügtes Bild) – nichts malen
 let mediaMenu = null;    // Menüs "Einfügen" und "Teilen" (siehe mediamenu.js)
+let claudeMenu = null;   // Claude-Knopf (siehe claudemenu.js)
 
 // Rückgängig/Wiederholen: bei jeder Änderung die Knöpfe an- oder ausgrauen
 const history = new History(() => {
@@ -818,6 +820,31 @@ mediaMenu = setupMediaMenu({
   closeOtherPopups() {
     toolbar.closePopup();
     pages.closePopup();
+    claudeMenu?.close();
+  },
+});
+
+// ======================================================================
+// Claude fragen – siehe claudemenu.js (Chat läuft im Federleicht-Helfer auf claude.ai)
+// ======================================================================
+claudeMenu = setupClaudeMenu({
+  // Aktuelle Seite als PNG (helles Blatt). ~1200 Pixel breit reicht Claude völlig.
+  async pageImage() {
+    if (!note) throw new Error('keine Notiz offen');
+    textEditor.finish();
+    const canvas = await renderPage(doc.pages[currentIndex()], 1.2);
+    const blob = await canvasBlob(canvas, 'image/png');
+    canvas.width = canvas.height = 0;
+    return blob;
+  },
+  pageLabel() {
+    const title = note?.title || 'Notiz';
+    return doc.count > 1 ? `${title} (Seite ${currentIndex() + 1})` : title;
+  },
+  closeOtherPopups() {
+    toolbar.closePopup();
+    pages.closePopup();
+    mediaMenu?.close();
   },
 });
 
@@ -1103,6 +1130,7 @@ pages = setupPages({
   closeOtherPopups() {
     toolbar.closePopup();
     mediaMenu?.close();
+    claudeMenu?.close();
   },
 });
 
