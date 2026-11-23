@@ -3407,3 +3407,169 @@ body {
     width: 42px;
   }
 }
+
+/* ---------- Etappe 7: Fortschrittsbalken (PDF laden, Exportieren) ---------- */
+.dlg-bar {
+  position: relative;
+  height: 8px;
+  margin: 6px 0 14px;
+  overflow: hidden;
+  border-radius: 99px;
+  background: var(--chip);
+}
+
+.dlg-bar i {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 0;
+  border-radius: inherit;
+  background: var(--accent-grad);
+  transition: width 0.25s ease-out;
+}
+
+.dlg-bar.busy i {
+  width: 35%;
+  animation: dlg-busy 1.1s ease-in-out infinite;
+}
+
+@keyframes dlg-busy {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(290%);
+  }
+}
+
+/* ---------- Etappe 7: Menüs "Einfügen" und "Teilen" ---------- */
+.media-popup {
+  width: 340px;
+  padding-bottom: 10px;
+}
+
+.mm-list {
+  display: grid;
+  gap: 2px;
+  margin: 2px -6px 0;
+}
+
+.mm-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  padding: 11px 12px;
+  border: none;
+  border-radius: 18px;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+
+.mm-row:active {
+  background: var(--chip);
+}
+
+.mm-row > svg {
+  flex: none;
+  width: 42px;
+  height: 42px;
+  padding: 9px;
+  border-radius: 14px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.mm-row span {
+  display: grid;
+  gap: 2px;
+}
+
+.mm-row small {
+  color: var(--muted);
+  font-size: 12.5px;
+  font-weight: 450;
+}
+
+.media-popup .popup-hint {
+  margin-top: 6px;
+}
+
+/* Startbildschirm: "PDF öffnen" */
+.h-chip.h-pdf {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 15px 0 11px;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.h-chip.h-pdf svg {
+  width: 21px;
+  height: 21px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+@media (max-width: 720px) {
+  .h-chip.h-pdf span {
+    display: none;
+  }
+  .h-chip.h-pdf {
+    padding: 0 9px;
+  }
+}
+
+/* Hochkant: mit "Einfügen" und "Teilen" wird die Leiste voll -> rechts so breit wie nötig,
+   der Titel links macht Platz (wird mit "…" gekürzt) */
+@media (max-width: 900px) {
+  .topbar {
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    gap: 8px;
+    padding-left: 6px;
+    padding-right: 6px;
+  }
+  .actions {
+    gap: 0;
+  }
+  .actions .icon-btn {
+    width: 38px;
+  }
+  .pages-btn {
+    white-space: nowrap;
+    padding: 8px 8px 8px 7px;
+  }
+}
+
+@media (max-width: 700px) {
+  #btn-add-page {
+    display: none; /* Seite hinzufügen geht auch unten unter der letzten Seite und in der Übersicht */
+  }
+}
+
+/* Rechts nie zusammenquetschen (sonst bricht "1 / 3" oder "100 %" um) – lieber wird der Titel kürzer */
+.topbar {
+  grid-template-columns: minmax(0, 1fr) auto minmax(max-content, 1fr);
+}
+
+.pages-btn,
+.zoom-btn {
+  white-space: nowrap;
+}
+
+.nt-state {
+  white-space: nowrap;
+}

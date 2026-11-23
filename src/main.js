@@ -1,7 +1,7 @@
 // main.js – der Startpunkt: hier wird alles zusammengesteckt
 import './style.css';
 import './paint.js'; // Farbflächen auf Canvas (gegen den Dunkelmodus von Samsung Internet)
-import { View, PAGE_HEIGHT } from './view.js';
+import { View, PAGE_WIDTH, PAGE_HEIGHT } from './view.js';
 import { NoteDocument, createPage, END_SPACE } from './document.js';
 import { DEFAULT_TEMPLATE, drawThumbnail, paperColor } from './templates.js';
 import { setupPages } from './pages.js';
@@ -19,9 +19,13 @@ import { setupToolbar } from './toolbar.js';
 import { setupWheel } from './wheel.js';
 import * as store from './store.js';
 import { setupHome } from './home.js';
-import { askText, toast } from './dialog.js';
+import { askText, toast, progressBox, chooseAction } from './dialog.js';
 import { setupLasso } from './lasso.js';
 import { recognizeShape, shapeFromDrag, densify, transformShape, FILL_MODES, fillable } from './shapes.js';
+import { prepareImage, createImageItem, placeMatrix, remember, onMediaLoaded, ensureLoaded, imageIdsOf, fileIdsOf, mediaSettings, pageDark } from './media.js';
+import { importPdf, scheduleSharp } from './pdfdoc.js';
+import { exportPdf, exportImage, fileName, canShareFile, shareFile, downloadFile } from './export.js';
+import { setupMediaMenu } from './mediamenu.js';
 
 // ---------- Einstellungen ----------
 // Farbe, Dicke, Stiftart usw. kommen aus der Werkzeugleiste (siehe tools.js)
@@ -51,6 +55,8 @@ let textEditor = null;   // Textfelder bearbeiten (siehe texteditor.js), wird we
 let home = null;         // Startbildschirm (siehe home.js), wird weiter unten eingerichtet
 let lasso = null;        // Lasso-Auswahl (siehe lasso.js), wird weiter unten eingerichtet
 let shapeDrag = null;    // Formen-Werkzeug: Form wird gerade aufgezogen { start, end }
+let swallowPen = false;  // dieser Stift-Strich hebt nur eine Auswahl auf (z. B. ein eingefügtes Bild) – nichts malen
+let mediaMenu = null;    // Menüs "Einfügen" und "Teilen" (siehe mediamenu.js)
 
 // Rückgängig/Wiederholen: bei jeder Änderung die Knöpfe an- oder ausgrauen
 const history = new History(() => {
@@ -74,6 +80,13 @@ const app = {
 
   startStroke(point, pointerType) {
     liftedPointer = null;
+    swallowPen = false;
+    // Etwas ausgewählt (z. B. gerade eingefügtes Bild) und daneben getippt: nur die Auswahl aufheben
+    if (tools.tool !== 'lasso' && lasso.active) {
+      lasso.clear();
+      swallowPen = true;
+      return;
+    }
     // Lasso: statt zu zeichnen eine Auswahl-Schlinge ziehen (siehe lasso.js)
     if (tools.tool === 'lasso') return lasso.penDown(point);
     // Der Strich gehört zu der Seite, auf der er anfängt (in der Lücke: die nähere)
@@ -85,7 +98,7 @@ const app = {
   },
 
   extendStroke(points, predicted) {
-    if (points.length === 0) return;
+    if (points.length === 0 || swallowPen) return;
     if (tools.tool === 'lasso') return lasso.penMove(points);
     if (shapeDrag) return updateShapeDrag(toLocal(points[points.length - 1]));
     points = points.map(toLocal);
@@ -141,6 +154,10 @@ const app = {
 
   endStroke() {
     liftedPointer = null;
+    if (swallowPen) {
+      swallowPen = false;
+      return;
+    }
     if (tools.tool === 'lasso') return lasso.penUp();
     if (shapeDrag) return finishShapeDrag();
     if (current && !current.simulatePressure && !current.straight) {
@@ -610,6 +627,7 @@ function deletePage(i) {
 function duplicatePage(i) {
   const original = doc.pages[i];
   const copy = createPage(original.template);
+  if (original.bg) copy.bg = { ...original.bg }; // PDF-Hintergrund gehört dazu
   // Striche kopieren (die fertigen Formen darin ändern sich nie, die dürfen beide Seiten teilen)
   copy.strokes = original.strokes.map((s) => ({ ...s, z: nextZ++ }));
   changePages((list) => list.splice(i + 1, 0, copy));
@@ -620,6 +638,9 @@ function movePage(from, to) {
 }
 
 function setTemplate(indices, tpl) {
+  // "Alle Seiten": PDF-Seiten behalten ihr leeres Blatt (sonst lägen Linien über dem Arbeitsblatt)
+  if (indices.length > 1) indices = indices.filter((i) => !doc.pages[i].bg);
+  if (!indices.length) return;
   const templates = indices.map((i) => ({ page: doc.pages[i], before: { ...doc.pages[i].template }, after: { ...tpl } }));
   for (const t of templates) t.page.template = { ...tpl };
   history.push({ templates });
@@ -775,6 +796,245 @@ lasso = setupLasso({
   toast,
 });
 
+
+// ======================================================================
+// Bilder und PDFs (Etappe 7) – siehe media.js, pdfdoc.js, export.js
+// ======================================================================
+
+// Bild fertig geladen -> neu malen (Seite und Seitenübersicht)
+onMediaLoaded(() => {
+  renderer.requestRender();
+  pages.strokesChanged();
+});
+// Beim Reinzoomen PDF-Seiten gestochen scharf nachmalen
+renderer.onBackgrounds = (list) => scheduleSharp(list, () => renderer.requestRender());
+
+mediaMenu = setupMediaMenu({
+  insertImages: (files) => insertImages(files),
+  insertPdf: (file) => insertPdf(file),
+  exportNote: (kind, which) => exportNote(kind, which),
+  pageCount: () => doc.count,
+  currentPage: () => currentIndex(),
+  closeOtherPopups() {
+    toolbar.closePopup();
+    pages.closePopup();
+  },
+});
+
+// Bilder einfügen: mittig in den sichtbaren Teil der aktuellen Seite (oder an Stelle "at" = Dokument-Punkt)
+async function insertImages(files, at = null) {
+  if (!note) return;
+  const images = files.filter((f) => f.type.startsWith('image/') || /\.(png|jpe?g|webp|gif|bmp|heic|avif)$/i.test(f.name));
+  if (!images.length) return toast('Das ist kein Bild');
+  textEditor.finish();
+  const index = at ? doc.indexAt(at[1]) : currentIndex();
+  const page = doc.pages[index];
+  const top = doc.top(index);
+  // Sichtbarer Teil der Seite (Seiten-Koordinaten)
+  const [vx0, vy0] = view.toPage(0, 0);
+  const [vx1, vy1] = view.toPage(view.width, view.height);
+  const vis = {
+    x0: Math.max(0, vx0),
+    y0: Math.max(0, vy0 - top),
+    x1: Math.min(PAGE_WIDTH, vx1),
+    y1: Math.min(PAGE_HEIGHT, vy1 - top),
+  };
+  if (vis.x1 - vis.x0 < 100 || vis.y1 - vis.y0 < 100) Object.assign(vis, { x0: 0, y0: 0, x1: PAGE_WIDTH, y1: PAGE_HEIGHT });
+  let cx = at ? at[0] : (vis.x0 + vis.x1) / 2;
+  let cy = at ? at[1] - top : (vis.y0 + vis.y1) / 2;
+
+  const busy = images.length > 1 || images[0].size > 3e6 ? progressBox({ title: 'Bild wird eingefügt …' }) : null;
+  busy?.update('Einen Moment', null);
+  const added = [];
+  try {
+    for (const file of images) {
+      if (busy?.signal.cancelled) break;
+      const img = await prepareImage(file);
+      const blobId = store.uid();
+      await store.putBlob(blobId, img.blob); // erst die Datei sicher speichern, dann auf die Seite
+      remember(blobId, img.bitmap);
+      // Größe: höchstens 60 % des Sichtbaren, nie größer als das Bild selbst in Originalgröße
+      const maxW = Math.min(PAGE_WIDTH * 0.8, (vis.x1 - vis.x0) * 0.6);
+      const maxH = Math.min(PAGE_HEIGHT * 0.8, (vis.y1 - vis.y0) * 0.6);
+      const k = Math.min(maxW / img.w, maxH / img.h, 1.6);
+      const w = img.w * k;
+      const h = img.h * k;
+      const x = Math.max(w / 2, Math.min(PAGE_WIDTH - w / 2, cx));
+      const y = Math.max(h / 2, Math.min(PAGE_HEIGHT - h / 2, cy));
+      added.push(createImageItem({ blobId, iw: img.w, ih: img.h, m: placeMatrix(x, y, w, h), z: nextZ++ }));
+      cx += 30; // mehrere Bilder leicht versetzt
+      cy += 30;
+    }
+  } catch (err) {
+    console.error(err);
+    toast('Das Bild lässt sich nicht öffnen');
+  } finally {
+    busy?.close();
+  }
+  if (!added.length || !doc.pages.includes(page)) return;
+  commitChanges([{ page, added, removed: [] }]);
+  renderer.renderNow();
+  lasso.select(page, added); // gleich ausgewählt: verschieben, größer/kleiner, drehen
+  toast(added.length === 1 ? 'Bild eingefügt – ziehen zum Verschieben, Ecken für die Größe' : `${added.length} Bilder eingefügt`);
+}
+
+// PDF einlesen: Fortschritt zeigen, Hintergründe zurückgeben (oder null)
+async function readPdf(file) {
+  if (!file) return null;
+  if (!(file.type === 'application/pdf' || /\.pdf$/i.test(file.name))) {
+    toast('Das ist keine PDF-Datei');
+    return null;
+  }
+  const busy = progressBox({ title: 'PDF wird geöffnet …', text: file.name });
+  busy.update('pdf.js wird geladen …', null);
+  try {
+    const bgs = await importPdf(file, {
+      signal: busy.signal,
+      onProgress: (done, total) => busy.update(`Seite ${Math.min(done + 1, total)} von ${total}`, total ? done / total : null),
+    });
+    if (busy.signal.cancelled) {
+      // Abgebrochen: Die Seiten, die schon fertig sind, trotzdem nehmen? Nein – lieber gar nichts.
+      return null;
+    }
+    return bgs;
+  } catch (err) {
+    console.error(err);
+    toast(err?.message || 'Die PDF lässt sich nicht öffnen');
+    return null;
+  } finally {
+    busy.close();
+  }
+}
+
+// Leere Vorlage für PDF-Seiten: weißes Blatt ohne Linien
+const PDF_TEMPLATE = { kind: 'blank', spacing: 'M', paper: 'white' };
+
+function pdfPages(bgs) {
+  return bgs.map((bg) => ({ ...createPage(PDF_TEMPLATE), bg }));
+}
+
+// PDF in die offene Notiz einfügen (nach der aktuellen Seite). Ist die Notiz noch ganz leer,
+// ersetzen die PDF-Seiten die leere Seite.
+async function insertPdf(file) {
+  if (!note) return;
+  textEditor.finish();
+  const bgs = await readPdf(file);
+  if (!bgs?.length || !note) return;
+  const fresh = pdfPages(bgs);
+  const emptyNote = doc.pages.every((p) => p.strokes.length === 0 && !p.bg);
+  const at = emptyNote ? 0 : currentIndex() + 1;
+  changePages((list) => list.splice(at, emptyNote ? list.length : 0, ...fresh));
+  if (emptyNote && /^Notiz vom /.test(note.title || '')) {
+    note.title = file.name.replace(/\.pdf$/i, '');
+    showTitle();
+    markDirty([], true);
+  }
+  goTo(at, false);
+  toast(`${fresh.length} ${fresh.length === 1 ? 'Seite' : 'Seiten'} eingefügt – einfach draufschreiben`);
+}
+
+// Neue Notiz aus einer PDF (vom Startbildschirm aus)
+async function createNoteFromPdf(file, folderId = null) {
+  const bgs = await readPdf(file);
+  if (!bgs?.length) return;
+  const list = pdfPages(bgs);
+  const now = Date.now();
+  const meta = {
+    id: store.uid(),
+    title: file.name.replace(/\.pdf$/i, '') || defaultTitle(),
+    folderId,
+    created: now,
+    updated: now,
+    favorite: false,
+    deletedAt: null,
+    pageIds: list.map((p) => p.id),
+    pageCount: list.length,
+    firstTemplate: { ...PDF_TEMPLATE },
+    blobIds: fileIdsOf(list),
+    thumbStale: true,
+  };
+  await store.saveNote(meta, list.map((p) => store.packPage(p, meta.id)));
+  await openNote(meta.id);
+}
+
+// Exportieren: kind 'pdf' | 'png', which 'all' | 'page'
+async function exportNote(kind, which) {
+  if (!note) return;
+  textEditor.finish();
+  lasso.clear();
+  const title = note.title || 'Notiz';
+  const index = currentIndex();
+  const list = which === 'all' ? [...doc.pages] : [doc.pages[index]];
+  const busy = progressBox({ title: kind === 'pdf' ? 'PDF wird erstellt …' : 'Bild wird erstellt …' });
+  busy.update('Einen Moment', null);
+  let blob = null;
+  try {
+    if (kind === 'pdf') {
+      blob = await exportPdf(list, {
+        title,
+        signal: busy.signal,
+        onProgress: (done, total) => busy.update(`Seite ${Math.min(done + 1, total)} von ${total}`, done / total),
+      });
+    } else {
+      blob = await exportImage(list[0]);
+    }
+  } catch (err) {
+    console.error(err);
+    toast('Exportieren hat nicht geklappt');
+  } finally {
+    busy.close();
+  }
+  if (!blob || busy.signal.cancelled) return;
+  const suffix = which === 'page' && doc.count > 1 ? ` (Seite ${index + 1})` : '';
+  const file = new File([blob], fileName(title + suffix, kind), { type: blob.type });
+  const size = blob.size > 1e6 ? `${(blob.size / 1e6).toFixed(1).replace('.', ',')} MB` : `${Math.max(1, Math.round(blob.size / 1e3))} KB`;
+  const share = canShareFile(file);
+  // Erst jetzt fragen: Teilen braucht ein frisches Antippen (sonst blockt der Browser)
+  const act = await chooseAction({
+    title: kind === 'pdf' ? 'PDF ist fertig' : 'Bild ist fertig',
+    text: `${file.name} · ${size}`,
+    actions: share
+      ? [
+          { id: 'save', label: 'Speichern' },
+          { id: 'share', label: 'Teilen', primary: true },
+        ]
+      : [{ id: 'save', label: 'Speichern', primary: true }],
+  });
+  if (act === 'share') {
+    if (!(await shareFile(file, title))) {
+      downloadFile(file);
+      toast('Teilen ging nicht – in „Downloads“ gespeichert');
+    }
+  } else if (act === 'save') {
+    downloadFile(file);
+    toast('In „Downloads“ gespeichert');
+  }
+}
+
+// Am PC (oder mit Tastatur): Bild aus der Zwischenablage einfügen
+window.addEventListener('paste', (e) => {
+  if (!note || home.open || textEditor.active || document.querySelector('.dlg-back')) return;
+  const files = [...(e.clipboardData?.files || [])];
+  if (!files.length) return;
+  e.preventDefault();
+  if (files.some((f) => /pdf/.test(f.type))) insertPdf(files.find((f) => /pdf/.test(f.type)));
+  else insertImages(files);
+});
+
+// Datei auf die Seite ziehen (Drag & Drop, z. B. aus "Eigene Dateien" im geteilten Bildschirm)
+stage.addEventListener('dragover', (e) => {
+  if (note && [...(e.dataTransfer?.types || [])].includes('Files')) e.preventDefault();
+});
+stage.addEventListener('drop', (e) => {
+  const files = [...(e.dataTransfer?.files || [])];
+  if (!note || !files.length) return;
+  e.preventDefault();
+  const pdf = files.find((f) => f.type === 'application/pdf' || /\.pdf$/i.test(f.name));
+  if (pdf) return insertPdf(pdf);
+  const r = stage.getBoundingClientRect();
+  insertImages(files, view.toPage(e.clientX - r.left, e.clientY - r.top));
+});
+
 // ---------- Werkzeugleiste ----------
 let toolBeforeEraser = tools.tool === 'highlighter' ? 'highlighter' : 'pen';
 const toolbar = setupToolbar({
@@ -804,6 +1064,7 @@ input.setStickyEraser(tools.tool === 'eraser');
 // Dunkles Blatt: nur wenn das Tablet im Dunkelmodus ist UND der Schalter an ist
 const prefersDark = matchMedia('(prefers-color-scheme: dark)');
 let darkPaperSetting = readSetting('darkPaper', 'on') === 'on';
+mediaSettings.darkPdf = readSetting('darkPdf', 'off') === 'on';
 
 function applyTheme() {
   textEditor.themeChanged();
@@ -833,8 +1094,15 @@ pages = setupPages({
     saveSetting('darkPaper', on ? 'on' : 'off');
     applyTheme();
   },
+  darkPdfSetting: () => mediaSettings.darkPdf,
+  setDarkPdfSetting(on) {
+    mediaSettings.darkPdf = on;
+    saveSetting('darkPdf', on ? 'on' : 'off');
+    applyTheme();
+  },
   closeOtherPopups() {
     toolbar.closePopup();
+    mediaMenu?.close();
   },
 });
 
@@ -1053,13 +1321,14 @@ async function writeNote(forceThumbs) {
     target.pageIds = ids;
     target.pageCount = ids.length;
     target.firstTemplate = { ...doc.pages[0].template };
+    target.blobIds = fileIdsOf(doc.pages); // diese Dateien (Bilder, PDFs) darf das Aufräumen nicht löschen
     target.thumbStale = thumbDirty; // merken, falls die App vor dem nächsten Vorschaubild beendet wird
   }
   let thumbs = null;
   if (thumbsNow) {
     thumbDirty = false;
     lastThumbAt = performance.now();
-    thumbs = makeThumbs(); // malt sofort, wartet nur noch auf die fertigen Bilddateien
+    thumbs = makeThumbs(); // wartet ggf. auf Bilder, malt dann und macht daraus Bilddateien
   } else if (thumbDirty) scheduleThumb();
 
   if (thumbs) Object.assign(target, await thumbs, { thumbAt: Date.now(), thumbStale: false });
@@ -1078,13 +1347,15 @@ function scheduleThumb() {
 }
 
 // Vorschaubild der ersten Seite – einmal mit hellem und einmal mit dunklem Blatt
-function makeThumbs() {
+async function makeThumbs() {
   const page = doc.pages[0];
+  await ensureLoaded(imageIdsOf([page])); // Bilder und PDF erst laden, sonst fehlen sie im Vorschaubild
   const saved = { ...inkTheme };
-  const canvases = [false, true].map((dark) => {
+  const canvases = [false, true].map((darkMode) => {
+    const dark = pageDark(page, darkMode);
     const c = document.createElement('canvas');
     setInkTheme(dark, paperColor(page.template.paper, dark));
-    drawThumbnail(c, page.template, { dark, faint: true, strokes: page.strokes, fill: thumbStroke, width: THUMB_WIDTH });
+    drawThumbnail(c, page.template, { dark, faint: true, strokes: page.strokes, fill: thumbStroke, width: THUMB_WIDTH, bg: page.bg });
     return c;
   });
   setInkTheme(saved.dark, saved.paper);
@@ -1096,7 +1367,7 @@ function makeThumbs() {
 // Im kleinen Vorschaubild wären dünne Striche kaum zu sehen: mit feinem Rand etwas kräftiger malen
 function thumbStroke(ctx, stroke) {
   fillStroke(ctx, stroke);
-  if (stroke.tool === 'highlighter' || !stroke.layers) return;
+  if (stroke.tool === 'highlighter' || stroke.tool === 'image' || !stroke.layers) return;
   ctx.save();
   ctx.strokeStyle = displayColor(stroke.color);
   ctx.lineWidth = 0.7 / ctx.getTransform().a; // etwa 0,7 Pixel im Vorschaubild
@@ -1247,6 +1518,7 @@ async function goHome() {
 home = setupHome({
   openNote: (id) => openNote(id),
   createNote,
+  createNoteFromPdf,
   darkPaper: () => renderer.darkPaper,
 });
 
@@ -1269,6 +1541,8 @@ async function boot() {
   let opened = false;
   try {
     await store.openDB();
+    // Dateien (Bilder/PDFs) wegräumen, die keine Notiz mehr braucht
+    await store.cleanupBlobs().catch((err) => console.warn('Aufräumen ging nicht', err));
     if (session.screen === 'note' && session.noteId) opened = await openNote(session.noteId, session.view);
     if (!opened) await home.show();
   } catch (err) {

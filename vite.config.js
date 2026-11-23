@@ -45,9 +45,46 @@ function listFiles(dir, base = dir) {
   });
 }
 
+// pdf.js braucht ein paar Zusatzdateien (Standard-Schriften, Hilfsprogramme für Scans).
+// Sie kommen als Ordner "pdfjs/" mit in die App, damit PDFs auch offline gehen.
+const PDFJS_DIRS = ['standard_fonts', 'wasm'];
+const PDFJS_ROOT = resolve('node_modules/pdfjs-dist');
+const pdfjsWanted = (name) => !/^LICENSE|quickjs/.test(name); // JavaScript-in-PDFs brauchen wir nicht
+
+function pdfjsAssetsPlugin() {
+  return {
+    name: 'federleicht-pdfjs-assets',
+    // Beim Entwickeln: direkt aus node_modules ausliefern
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        const m = /\/pdfjs\/(standard_fonts|wasm)\/([\w.-]+)$/.exec((req.url || '').split('?')[0]);
+        if (!m || !pdfjsWanted(m[2])) return next();
+        try {
+          const data = readFileSync(join(PDFJS_ROOT, m[1], m[2]));
+          res.setHeader('Content-Type', m[2].endsWith('.wasm') ? 'application/wasm' : m[2].endsWith('.js') ? 'text/javascript' : 'application/octet-stream');
+          res.end(data);
+        } catch {
+          next();
+        }
+      });
+    },
+    // Beim Bauen: in den Ordner dist/pdfjs/ kopieren
+    generateBundle() {
+      for (const dir of PDFJS_DIRS) {
+        for (const name of readdirSync(join(PDFJS_ROOT, dir))) {
+          if (!pdfjsWanted(name)) continue;
+          this.emitFile({ type: 'asset', fileName: `pdfjs/${dir}/${name}`, source: readFileSync(join(PDFJS_ROOT, dir, name)) });
+        }
+      }
+    },
+  };
+}
+
 export default defineConfig({
   // "./" = relative Pfade. Dadurch läuft die App auch in einem Unterordner,
   // z. B. später auf GitHub Pages unter https://name.github.io/federleicht/
   base: './',
-  plugins: [serviceWorkerPlugin()],
+  plugins: [pdfjsAssetsPlugin(), serviceWorkerPlugin()],
+  // pdf.js ist groß, wird aber erst geladen, wenn eine PDF geöffnet wird -> Warnung erst ab 1,5 MB
+  build: { chunkSizeWarningLimit: 1500 },
 });

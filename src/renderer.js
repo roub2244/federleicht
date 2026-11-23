@@ -12,6 +12,7 @@
 import { PAGE_WIDTH, PAGE_HEIGHT } from './view.js';
 import { fillStroke, setInkTheme } from './ink.js';
 import { drawTemplate, paperColor } from './templates.js';
+import { drawBackground, pageDark } from './media.js';
 
 export class Renderer {
   constructor(canvas, view, doc) {
@@ -39,6 +40,7 @@ export class Renderer {
     this.lastBox = null;   // wo das Overlay zuletzt war
     this.frame = 0;
     this.onRender = null;  // wird nach jedem kompletten Neumalen aufgerufen
+    this.onBackgrounds = null; // bekommt die sichtbaren PDF-Seiten (zum scharf Nachmalen, siehe pdfdoc.js)
     this.readColors();
   }
 
@@ -82,7 +84,8 @@ export class Renderer {
 
   useInkOf(i) {
     const page = this.doc.pages[i];
-    setInkTheme(this.darkPaper, paperColor(page?.template.paper, this.darkPaper));
+    const dark = pageDark(page, this.darkPaper); // PDF-Seiten bleiben (meist) hell
+    setInkTheme(dark, paperColor(page?.template.paper, dark));
   }
 
   // Welche Seiten sind (teilweise) zu sehen? Optional nur in einem Bereich (Dokument-Koordinaten)
@@ -129,19 +132,21 @@ export class Renderer {
     const vis = this.visibleArea(null);
     const [first, last] = this.doc.range(vis.y0, vis.y1);
     const px = this.view.scale * this.dpr; // echte Pixel pro Seiten-Einheit
+    const backgrounds = [];
     for (let i = first; i <= last; i++) {
       const page = this.doc.pages[i];
       const top = this.doc.top(i);
+      const dark = pageDark(page, this.darkPaper);
       this.applyView(c);
       c.translate(0, top);
       c.save();
       c.shadowColor = this.colors.shadow;
       c.shadowBlur = 20 * this.dpr;
       c.shadowOffsetY = 4 * this.dpr;
-      c.fillStyle = paperColor(page.template.paper, this.darkPaper);
+      c.fillStyle = paperColor(page.template.paper, dark);
       c.fillRect(0, 0, PAGE_WIDTH, PAGE_HEIGHT);
       c.restore();
-      if (this.darkPaper) {
+      if (dark) {
         // Auf dunklem Hintergrund sieht man den Schatten kaum: feiner heller Rand
         c.strokeStyle = 'rgba(255, 255, 255, 0.07)';
         c.lineWidth = 1 / px;
@@ -152,9 +157,14 @@ export class Renderer {
       c.rect(0, 0, PAGE_WIDTH, PAGE_HEIGHT);
       c.clip();
       const local = { x0: vis.x0, y0: vis.y0 - top, x1: vis.x1, y1: vis.y1 - top };
-      drawTemplate(c, page.template, local, px, this.darkPaper);
+      if (page.bg) {
+        drawBackground(c, page, dark, px); // PDF-Seite (Etappe 7)
+        backgrounds.push({ page, k: px, vis: local });
+      }
+      drawTemplate(c, page.template, local, px, dark);
       c.restore();
     }
+    this.onBackgrounds?.(backgrounds);
   }
 
   // Das Zwischenbild komplett neu malen: Papier + alle sichtbaren Striche

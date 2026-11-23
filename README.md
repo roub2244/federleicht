@@ -5,6 +5,7 @@ Etappe 1: **installierbare Offline-App + Zeichenfläche**, auf der du flüssig m
 Etappe 2: **Werkzeugleiste** wie bei Samsung Notes: Stift, Textmarker, Radierer, Rückgängig und Wiederholen.
 Etappe 3: **Seitenvorlagen und mehrere Seiten** pro Notiz, dazu ein **dunkles Blatt** im Dunkelmodus.
 Etappe 4: **Alles wird gespeichert**, dazu ein **Startbildschirm** mit Ordnern und eine **Scroll-Sperre**.
+Etappe 7: **Bilder und PDFs**: Fotos einfügen, Arbeitsblätter (PDF) öffnen und beschreiben, Notizen als PDF oder Bild teilen.
 
 Was schon geht:
 
@@ -65,6 +66,21 @@ Was schon geht:
   die Seite erst nach einem deutlichen Wisch. Kleine Bewegungen der aufliegenden Hand verschieben nichts mehr,
   und nach dem Schreiben werden Finger etwas länger ignoriert. Nochmal tippen hebt die Sperre auf.
 
+**Neu in Etappe 7:**
+
+- **Einfügen** (Bild-Symbol mit „+“ oben rechts): **Bild** aus der Galerie, **Foto aufnehmen** (z. B. Tafelbild) oder **PDF**.
+  Ein eingefügtes Bild ist gleich ausgewählt: ziehen = verschieben, Ecken = größer/kleiner, runder Griff = drehen.
+  Mit dem Stift kannst du direkt auf das Bild schreiben. Später wieder bearbeiten: mit dem Lasso antippen.
+  Der Radierer löscht keine Bilder (dafür Lasso → Löschen). Am PC geht auch Strg+V und Datei hineinziehen.
+- **PDF öffnen** (Startbildschirm, oben rechts): Aus der PDF wird eine neue Notiz, jede PDF-Seite eine Seite,
+  auf der du schreiben, markieren und tippen kannst. Beim Reinzoomen wird die PDF gestochen scharf nachgemalt.
+  Querformat-Seiten werden eingepasst. Läuft komplett offline (pdf.js ist in der App).
+- **Dunkelmodus:** PDF-Seiten bleiben weiß (die Tinte darauf ist dann dunkel). Im Vorlagen-Menü kann man
+  „PDF-Seiten auch dunkel“ einschalten, dann werden die Farben der PDF umgedreht.
+- **Teilen** (Pfeil nach oben, oben rechts): ganze Notiz oder eine Seite als **PDF**, oder eine Seite als **Bild (PNG)**.
+  Danach „Teilen“ (WhatsApp, Mail, Drive, Classroom …) oder „Speichern“ (Downloads). Exportiert wird immer mit hellem Blatt.
+- Bilder und PDFs liegen mit in der App (IndexedDB) und kommen auch in die **Sicherung**.
+
 ---
 
 ## Starten auf dem PC
@@ -123,6 +139,10 @@ npm run preview    # zeigt die fertige Version an (mit Service Worker)
 | `src/straighten.js` | Gerade Linien: erkennt mit einem Timer, ob der Stift stillsteht, und macht aus dem Strich eine Strecke |
 | `src/view.js` | Die „Kamera": rechnet zwischen Bildschirm und Blatt um (Zoom und Verschieben) |
 | `src/renderer.js` | Malt alles aufs Canvas, und zwar so, dass möglichst wenig neu gemalt werden muss |
+| `src/media.js` | **Bilder und PDF-Hintergründe:** Bild-Elemente (Matrix zum Verschieben/Drehen), Laden mit Zwischenspeicher, Verkleinern beim Einfügen |
+| `src/pdfdoc.js` | PDFs mit pdf.js öffnen: jede Seite als Bild speichern, beim Reinzoomen scharf nachmalen |
+| `src/export.js` | Seiten in hoher Auflösung malen und daraus selbst eine PDF-Datei bauen; Teilen und Herunterladen |
+| `src/mediamenu.js` | Die Menüs „Einfügen“ und „Teilen“ |
 | `src/debug.js` | Das Diagnose-Fenster |
 | `src/sw.js` | Der Service Worker: speichert alle Dateien, damit die App offline läuft |
 | `public/manifest.webmanifest` | Steckbrief der App: Name, Icon, Farben, „ohne Browser-Leiste" |

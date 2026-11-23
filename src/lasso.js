@@ -21,6 +21,7 @@
 import { PAGE_WIDTH, PAGE_HEIGHT } from './view.js';
 import { fillStroke, strokeHit, transformStroke, recolorStroke, withZ } from './ink.js';
 import { textContentBox } from './text.js';
+import { imageHit, imageSamples } from './media.js';
 import {
   IDENTITY, compose, translate, rotate, scale, apply, isIdentity, pointInPolygon, boundsOf, unionBox, snapAngle, DEG,
 } from './geometry.js';
@@ -173,7 +174,7 @@ export function setupLasso({ stage, view, doc, renderer, tools, commit, newZ, cu
   }
 
   function wanted(s) {
-    if (tools.lasso.what === 'ink') return s.tool !== 'text';
+    if (tools.lasso.what === 'ink') return s.tool !== 'text' && s.tool !== 'image';
     if (tools.lasso.what === 'text') return s.tool === 'text';
     return true;
   }
@@ -189,7 +190,9 @@ export function setupLasso({ stage, view, doc, renderer, tools, commit, newZ, cu
     const pb = boundsOf(poly);
     if (b.maxX < pb.minX || b.minX > pb.maxX || b.maxY < pb.minY || b.minY > pb.maxY) return false;
     let samples;
-    if (s.tool === 'text') {
+    if (s.tool === 'image') {
+      samples = imageSamples(s);
+    } else if (s.tool === 'text') {
       samples = [];
       for (let i = 0; i < 3; i++) {
         for (let k = 0; k < 3; k++) samples.push([b.minX + ((b.maxX - b.minX) * (i + 0.5)) / 3, b.minY + ((b.maxY - b.minY) * (k + 0.5)) / 3]);
@@ -208,7 +211,7 @@ export function setupLasso({ stage, view, doc, renderer, tools, commit, newZ, cu
     for (let i = page.strokes.length - 1; i >= 0; i--) {
       const s = page.strokes[i];
       if (!wanted(s)) continue;
-      if (s.tool === 'text' ? boxHit(boxOf(s), x, y, r) : strokeHit(s, x, y, r) || fillHit(s, x, y)) return s;
+      if (s.tool === 'image' ? imageHit(s, x, y, r) : s.tool === 'text' ? boxHit(boxOf(s), x, y, r) : strokeHit(s, x, y, r) || fillHit(s, x, y)) return s;
     }
     return null;
   }
@@ -243,6 +246,18 @@ export function setupLasso({ stage, view, doc, renderer, tools, commit, newZ, cu
       hasText: items.some((s) => s.tool === 'text'),
       frame: { cx: (b.minX + b.maxX) / 2, cy: (b.minY + b.maxY) / 2, w: b.maxX - b.minX + PAD * 2, h: b.maxY - b.minY + PAD * 2, angle: 0 },
     };
+    // Ein einzelnes (gedrehtes) Bild: Rahmen liegt genau am Bild, mit derselben Drehung
+    if (items.length === 1 && items[0].tool === 'image') {
+      const m = items[0].m;
+      const w = Math.hypot(m[0], m[1]);
+      const h = Math.hypot(m[2], m[3]);
+      const angle = Math.atan2(m[1], m[0]);
+      const square = Math.abs(m[0] * m[2] + m[1] * m[3]) < 1e-6 * w * h && m[0] * m[3] - m[1] * m[2] > 0;
+      if (square) {
+        const c = apply(m, [0.5, 0.5]);
+        sel.frame = { cx: c[0], cy: c[1], w: w + PAD * 2, h: h + PAD * 2, angle };
+      }
+    }
     box.classList.toggle('has-text', sel.hasText);
     navigator.vibrate?.(8);
     place();
@@ -678,6 +693,13 @@ export function setupLasso({ stage, view, doc, renderer, tools, commit, newZ, cu
     penDown,
     penMove,
     penUp,
+    // Etwas Bestimmtes auswählen (z. B. ein gerade eingefügtes Bild)
+    select(page, items) {
+      hidePaste();
+      drawing = null;
+      clear();
+      select(page, items);
+    },
     clear() {
       hidePaste();
       drawing = null;

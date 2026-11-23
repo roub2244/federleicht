@@ -141,6 +141,63 @@ export function chooseFrom({ title, options }) {
   });
 }
 
+// Fortschritt (z. B. "PDF wird geladen … 3 von 12"). Gibt { update, close, signal } zurück.
+// signal.cancelled wird true, wenn auf "Abbrechen" getippt wurde.
+export function progressBox({ title, text = '' }) {
+  const signal = { cancelled: false };
+  let card = null;
+  let closeFn = null;
+  let finished = false;
+  open({
+    html: `
+      <div class="dlg-title">${esc(title)}</div>
+      <div class="dlg-text dlg-progress-text">${esc(text)}</div>
+      <div class="dlg-bar"><i></i></div>
+      <div class="dlg-btns"><button class="dlg-btn" data-dlg="cancel">Abbrechen</button></div>`,
+    onReady(c, close) {
+      card = c;
+      closeFn = close;
+    },
+    result: () => undefined,
+  }).then(() => {
+    if (!finished) signal.cancelled = true; // "Abbrechen" getippt
+  });
+  return {
+    signal,
+    update(message, fraction = null) {
+      if (!card) return;
+      card.querySelector('.dlg-progress-text').textContent = message;
+      const bar = card.querySelector('.dlg-bar i');
+      bar.style.width = fraction === null ? '' : `${Math.round(Math.max(0, Math.min(1, fraction)) * 100)}%`;
+      bar.parentElement.classList.toggle('busy', fraction === null);
+    },
+    close() {
+      finished = true;
+      closeFn?.(null);
+    },
+  };
+}
+
+// Mehrere Knöpfe zur Auswahl (z. B. "Teilen" oder "Speichern"). actions: [{ id, label, primary? }]
+export function chooseAction({ title, text = '', actions }) {
+  return open({
+    html: `
+      <div class="dlg-title">${esc(title)}</div>
+      ${text ? `<div class="dlg-text">${esc(text)}</div>` : ''}
+      <div class="dlg-btns">
+        <button class="dlg-btn" data-dlg="cancel">Abbrechen</button>
+        ${actions.map((a) => `<button class="dlg-btn${a.primary ? ' primary' : ''}" data-act="${esc(a.id)}">${esc(a.label)}</button>`).join('')}
+      </div>`,
+    onReady(card, close) {
+      card.addEventListener('click', (e) => {
+        const b = e.target.closest('[data-act]');
+        if (b) close(b.dataset.act);
+      });
+    },
+    result: () => actions.find((a) => a.primary)?.id,
+  });
+}
+
 // Kurze Meldung unten ("Notiz gelöscht" mit "Rückgängig")
 let toastTimer = 0;
 export function toast(text, action = null) {

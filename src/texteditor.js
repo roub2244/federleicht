@@ -13,6 +13,7 @@
 // Beim Fertigwerden lesen wir aus dem Eingabefeld heraus, wie jedes Stück Text aussieht,
 // und speichern es in unserem eigenen Format (siehe text.js).
 
+import { pageDark } from './media.js';
 import {
   FONTS, fontCss, PT, SIZES_PT, LINE_HEIGHT, LIST_INDENT, MIN_WIDTH, DEFAULT_STYLE,
   createTextItem, updateTextBox, isEmptyText, textHit, textHighlight,
@@ -358,7 +359,8 @@ export function setupTextEditor({ stage, view, doc, renderer, tools, onCommit, o
 
   function useInk() {
     // Farben für das Blatt dieser Seite (hell/dunkel) einstellen
-    setInkTheme(renderer.darkPaper, paperColor(session.page.template.paper, renderer.darkPaper));
+    const dark = pageDark(session.page, renderer.darkPaper); // PDF-Seiten bleiben (meist) hell
+    setInkTheme(dark, paperColor(session.page.template.paper, dark));
   }
 
   // Eingefügter Text: nur reiner Text (fremde Formatierungen würden alles durcheinanderbringen)

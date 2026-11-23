@@ -15,6 +15,7 @@ import { TEMPLATES, PAPERS, hasSpacing, paperColor, drawThumbnail } from './temp
 import { paint } from './paint.js';
 import { fillStroke, setInkTheme, inkTheme } from './ink.js';
 import { PAGE_WIDTH } from './view.js';
+import { pageDark } from './media.js';
 
 const ICON = {
   close: '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg>',
@@ -101,6 +102,10 @@ export function setupPages(api) {
       <label class="switch-row">
         <span>Dunkles Blatt im Dunkelmodus<small>Schwarz und Weiß werden getauscht</small></span>
         <input type="checkbox" class="switch" data-toggle="darkPaper" />
+      </label>
+      <label class="switch-row" data-pdf-row hidden>
+        <span>PDF-Seiten auch dunkel<small>Farben der PDF umdrehen (sonst bleibt sie weiß)</small></span>
+        <input type="checkbox" class="switch" data-toggle="darkPdf" />
       </label>`;
     popup.hidden = false;
     place(popup, templateBtn);
@@ -141,6 +146,9 @@ export function setupPages(api) {
       b.querySelector('canvas').dataset.c = paperColor(b.dataset.paper, dark);
     }
     popup.querySelector('[data-toggle="darkPaper"]').checked = api.darkPaperSetting();
+    // Schalter für PDF-Seiten nur zeigen, wenn es in der Notiz welche gibt
+    popup.querySelector('[data-pdf-row]').hidden = !doc.pages.some((p) => p.bg);
+    popup.querySelector('[data-toggle="darkPdf"]').checked = api.darkPdfSetting();
   }
 
   // Vorlage ändern: nur diese Seite oder alle
@@ -169,6 +177,7 @@ export function setupPages(api) {
   });
   popup.addEventListener('change', (e) => {
     if (e.target.dataset.toggle === 'darkPaper') api.setDarkPaperSetting(e.target.checked);
+    if (e.target.dataset.toggle === 'darkPdf') api.setDarkPdfSetting(e.target.checked);
   });
 
   // Daneben tippen schließt das Menü (und malt dabei nicht aus Versehen)
@@ -233,8 +242,9 @@ export function setupPages(api) {
     const saved = { ...inkTheme };
     for (const card of overview.querySelectorAll('.ov-card')) {
       const page = doc.pages[Number(card.dataset.i)];
-      setInkTheme(dark, paperColor(page.template.paper, dark));
-      drawThumbnail(card.querySelector('canvas'), page.template, { dark, faint: true, strokes: page.strokes, fill: fillStroke });
+      const pd = pageDark(page, dark);
+      setInkTheme(pd, paperColor(page.template.paper, pd));
+      drawThumbnail(card.querySelector('canvas'), page.template, { dark: pd, faint: true, strokes: page.strokes, fill: fillStroke, bg: page.bg });
     }
     setInkTheme(saved.dark, saved.paper);
   }

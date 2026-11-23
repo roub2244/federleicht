@@ -9,6 +9,7 @@
 //   notes    eine Zeile pro Notiz: Titel, Ordner, Datum, Reihenfolge der Seiten, Vorschaubild
 //   pages    eine Zeile pro Seite: Vorlage und alle Striche
 //   folders  eine Zeile pro Ordner: Name und Farbe
+//   blobs    Dateien: eingefügte Bilder, PDF-Dateien und die gemalten PDF-Seiten (Etappe 7)
 //
 // Warum Seiten extra? Wenn du auf Seite 7 schreibst, speichern wir nur Seite 7 neu –
 // nicht die ganze Notiz. Das geht auch bei dicken Heften schnell.
@@ -18,9 +19,10 @@
 
 import { finishStroke } from './ink.js';
 import { packText, reviveText } from './text.js';
+import { packImage, reviveImage } from './media.js';
 
 const DB_NAME = 'federleicht';
-const DB_VERSION = 1;
+const DB_VERSION = 2; // 2: Schublade "blobs" für Bilder und PDFs
 
 let dbPromise = null;
 
@@ -34,6 +36,7 @@ export function openDB() {
       if (!db.objectStoreNames.contains('notes')) db.createObjectStore('notes', { keyPath: 'id' });
       if (!db.objectStoreNames.contains('pages')) db.createObjectStore('pages', { keyPath: 'id' });
       if (!db.objectStoreNames.contains('folders')) db.createObjectStore('folders', { keyPath: 'id' });
+      if (!db.objectStoreNames.contains('blobs')) db.createObjectStore('blobs', { keyPath: 'id' });
     };
     req.onsuccess = () => {
       const db = req.result;
@@ -116,6 +119,36 @@ export async function deleteNoteForever(note) {
   return finished(tx);
 }
 
+// ---------- Dateien (Bilder, PDFs) ----------
+// Eine Zeile pro Datei: { id, blob, type, size, created }
+
+export async function putBlob(id, blob) {
+  const db = await openDB();
+  const tx = db.transaction('blobs', 'readwrite');
+  tx.objectStore('blobs').put({ id, blob, type: blob.type, size: blob.size, created: Date.now() });
+  return finished(tx);
+}
+
+export async function getBlob(id) {
+  const row = await done((await store('blobs')).get(id));
+  return row?.blob || null;
+}
+
+// Dateien aufräumen, die keine Notiz mehr braucht (auch nicht im Papierkorb).
+// Jede Notiz merkt sich ihre Dateien in note.blobIds (siehe main.js, writeNote).
+export async function cleanupBlobs() {
+  const db = await openDB();
+  const tx = db.transaction(['notes', 'blobs'], 'readwrite');
+  const notes = await done(tx.objectStore('notes').getAll());
+  const keep = new Set(notes.flatMap((n) => n.blobIds || []));
+  const blobs = tx.objectStore('blobs');
+  const ids = await done(blobs.getAllKeys());
+  const gone = ids.filter((id) => !keep.has(id));
+  for (const id of gone) blobs.delete(id);
+  await finished(tx);
+  return gone.length;
+}
+
 // ---------- Ordner ----------
 
 export async function getAllFolders() {
@@ -149,8 +182,8 @@ const packCache = new WeakMap(); // fertige Striche ändern sich nie -> nur einm
 export function packStroke(s) {
   let packed = packCache.get(s);
   if (packed) return packed;
-  if (s.tool === 'text') {
-    packed = packText(s);
+  if (s.tool === 'text' || s.tool === 'image') {
+    packed = s.tool === 'text' ? packText(s) : packImage(s);
     packCache.set(s, packed);
     return packed;
   }
@@ -185,6 +218,7 @@ export function packStroke(s) {
 // So öffnet sich auch ein volles Heft schnell.
 export function unpackStroke(d) {
   if (d.tool === 'text') return reviveText(d);
+  if (d.tool === 'image') return reviveImage(d);
   const pts = d.pts instanceof Float32Array ? d.pts : Float32Array.from(d.pts || []);
   const points = [];
   for (let i = 0; i + 2 < pts.length; i += 3) points.push([pts[i], pts[i + 1], pts[i + 2]]);
@@ -210,41 +244,59 @@ export function unpackStroke(d) {
 }
 
 export function packPage(page, noteId) {
-  return { id: page.id, noteId, template: { ...page.template }, strokes: page.strokes.map(packStroke) };
+  const packed = { id: page.id, noteId, template: { ...page.template }, strokes: page.strokes.map(packStroke) };
+  if (page.bg) packed.bg = { ...page.bg }; // PDF-Hintergrund
+  return packed;
 }
 
 export function unpackPage(d) {
-  return { id: d.id, template: { ...d.template }, strokes: (d.strokes || []).map(unpackStroke) };
+  const page = { id: d.id, template: { ...d.template }, strokes: (d.strokes || []).map(unpackStroke) };
+  if (d.bg?.blobId && d.bg.w > 0 && d.bg.h > 0) page.bg = { ...d.bg };
+  return page;
 }
 
 // ---------- Sicherung (Datei) ----------
 // Alles in eine Datei: Ordner, Notizen, Seiten. Die Punkte als Base64-Text (kompakt).
 
-function toBase64(f32) {
-  const bytes = new Uint8Array(f32.buffer, f32.byteOffset, f32.byteLength);
+function bytesToBase64(bytes) {
   let s = '';
   for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
   return btoa(s);
 }
 
-function fromBase64(text) {
+function base64ToBytes(text) {
   const s = atob(text);
   const bytes = new Uint8Array(s.length);
   for (let i = 0; i < s.length; i++) bytes[i] = s.charCodeAt(i);
-  return new Float32Array(bytes.buffer);
+  return bytes;
+}
+
+function toBase64(f32) {
+  return bytesToBase64(new Uint8Array(f32.buffer, f32.byteOffset, f32.byteLength));
+}
+
+function fromBase64(text) {
+  return new Float32Array(base64ToBytes(text).buffer);
 }
 
 export async function exportAll() {
   const db = await openDB();
-  const tx = db.transaction(['notes', 'pages', 'folders']);
-  const [notes, pages, folders] = await Promise.all([
+  const tx = db.transaction(['notes', 'pages', 'folders', 'blobs']);
+  const [notes, pages, folders, blobs] = await Promise.all([
     done(tx.objectStore('notes').getAll()),
     done(tx.objectStore('pages').getAll()),
     done(tx.objectStore('folders').getAll()),
+    done(tx.objectStore('blobs').getAll()),
   ]);
+  // Bilder und PDFs als Text (Base64) mit in die Datei
+  const files = [];
+  for (const b of blobs) {
+    files.push({ id: b.id, type: b.blob.type, data: bytesToBase64(new Uint8Array(await b.blob.arrayBuffer())) });
+  }
   return {
     app: 'federleicht',
-    version: 1,
+    version: 2,
+    files,
     exported: new Date().toISOString(),
     folders,
     // Vorschaubilder lassen wir weg, die malt die App beim nächsten Öffnen neu
@@ -257,7 +309,11 @@ export async function exportAll() {
 export async function importAll(data) {
   if (!data || data.app !== 'federleicht' || !Array.isArray(data.notes)) throw new Error('Keine Federleicht-Sicherung');
   const db = await openDB();
-  const tx = db.transaction(['notes', 'pages', 'folders'], 'readwrite');
+  const tx = db.transaction(['notes', 'pages', 'folders', 'blobs'], 'readwrite');
+  for (const f of data.files || []) {
+    const blob = new Blob([base64ToBytes(f.data)], { type: f.type || '' });
+    tx.objectStore('blobs').put({ id: f.id, blob, type: blob.type, size: blob.size, created: Date.now() });
+  }
   for (const f of data.folders || []) tx.objectStore('folders').put(f);
   for (const n of data.notes) tx.objectStore('notes').put({ ...n, thumbStale: true });
   for (const p of data.pages || []) {
