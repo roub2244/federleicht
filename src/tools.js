@@ -29,6 +29,7 @@ export const HIGHLIGHTER_COLORS = [
 export const PEN_TYPES = [
   { id: 'fountain', name: 'Füller' },
   { id: 'ballpoint', name: 'Kugelschreiber' },
+  { id: 'felt', name: 'Filzstift' },
   { id: 'brush', name: 'Pinsel' },
 ];
 
@@ -41,8 +42,8 @@ export const SIZE_RANGE = {
 
 const DEFAULTS = {
   tool: 'pen', // 'pen' | 'highlighter' | 'eraser'
-  pen: { type: 'fountain', color: '#1f2a44', size: 3.2, custom: '#0ca678' },
-  highlighter: { color: '#ffe066', size: 18, custom: '#ffd43b' },
+  pen: { type: 'fountain', color: '#1f2a44', size: 3.2, recent: [] },
+  highlighter: { color: '#ffe066', size: 18, recent: [] },
   eraser: { mode: 'stroke', size: 12 }, // mode: 'stroke' (ganzer Strich) | 'area' (Bereich)
 };
 
