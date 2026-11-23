@@ -13,7 +13,8 @@
 //   Textmarker:     breit, durchsichtig, gerade Enden, wird beim Übermalen nicht dunkler
 
 import { getStroke } from 'perfect-freehand';
-import { drawText } from './text.js';
+import { drawText, transformText, recolorText } from './text.js';
+import { apply as applyMatrix, scaleOf } from './geometry.js';
 
 // thinning:   wie stark der Druck die Dicke ändert (0 = gar nicht, 1 = sehr stark)
 // smoothing:  wie rund der Umriss wird
@@ -54,8 +55,11 @@ function styleOf(stroke) {
 }
 
 // Einen neuen, leeren Strich anlegen
-export function createStroke({ tool = 'pen', penType = 'ballpoint', color, size, opacity = 1, simulatePressure, z = 0 }) {
+export function createStroke({ tool = 'pen', penType = 'ballpoint', color, size, opacity = 1, simulatePressure, z = 0, shape = null, fill = null, fillAlpha = 0 }) {
   return {
+    shape,              // Form (z. B. 'rect', 'circle') oder null = freihand (siehe shapes.js)
+    fill,               // Füllfarbe einer geschlossenen Form (oder null)
+    fillAlpha,          // Deckkraft der Füllung (0 bis 1)
     tool,               // 'pen' oder 'highlighter'
     penType,            // Schlüssel aus PEN_STYLES
     color,
@@ -147,7 +151,9 @@ export function buildPath(stroke, extraPoints = [], finished = false) {
     simulate = false; // der Füller rechnet den Druck selbst aus
   }
   const curve = style.curve || 1;
-  const length = style.taperStart || style.taperEnd ? pathLength(points) : 0;
+  // Formen: Punkte genau so nehmen, wie sie sind (kein Glätten, das die Ecken abrunden würde), keine Spitzen
+  const isShape = Boolean(stroke.shape);
+  const length = !isShape && (style.taperStart || style.taperEnd) ? pathLength(points) : 0;
 
   const layers = [];
   let box = null;
@@ -156,8 +162,8 @@ export function buildPath(stroke, extraPoints = [], finished = false) {
     const outline = getStroke(points, {
       size,
       thinning: style.thinning,
-      smoothing: style.smoothing,
-      streamline: style.streamline,
+      smoothing: isShape ? 0.35 : style.smoothing,
+      streamline: isShape ? 0 : style.streamline,
       easing: (p) => Math.pow(p, curve),
       simulatePressure: simulate,
       start: { cap: style.cap, taper: taperLength(style.taperStart, size, length, 0.2) },
@@ -187,7 +193,51 @@ export function finishStroke(stroke) {
   const { layers, box } = buildPath(stroke, [], true);
   stroke.layers = layers;
   stroke.box = box;
+  stroke.fillPath = stroke.fill && stroke.fillAlpha > 0 ? polygonPath(stroke.points) : null;
   return stroke;
+}
+
+// Füllung einer geschlossenen Form: einfach die Punkte als Vieleck
+function polygonPath(points) {
+  const path = new Path2D();
+  points.forEach((p, i) => (i ? path.lineTo(p[0], p[1]) : path.moveTo(p[0], p[1])));
+  path.closePath();
+  return path;
+}
+
+// ---------- Verschieben, drehen, vergrößern (Lasso) ----------
+// Eine verwandelte KOPIE eines Strichs (oder Textfelds) machen. m = Matrix (siehe geometry.js)
+// Die Dicke wächst mit, wenn man vergrößert – wie in Samsung Notes.
+export function transformStroke(stroke, m) {
+  if (stroke.tool === 'text') return transformText(stroke, m);
+  const k = scaleOf(m);
+  const copy = {
+    ...stroke,
+    points: stroke.points.map((p) => {
+      const [x, y] = applyMatrix(m, p);
+      return [x, y, p[2]];
+    }),
+    size: stroke.size * k,
+    layers: null,
+    box: null,
+  };
+  delete copy.hidden;
+  return finishStroke(copy);
+}
+
+// Kopie mit anderen Eigenschaften (z. B. Farbe), Form wird neu berechnet
+export function recolorStroke(stroke, color) {
+  if (stroke.tool === 'text') return recolorText(stroke, color);
+  const copy = { ...stroke, color, layers: null, box: null };
+  if (copy.fill) copy.fill = color;
+  return finishStroke(copy);
+}
+
+// Kopie mit neuer z-Nummer (Reihenfolge: weiter vorne oder hinten)
+export function withZ(stroke, z) {
+  const copy = { ...stroke, z };
+  if (stroke.tool === 'text') return copy;
+  return copy; // die fertige Form (layers) darf geteilt werden, sie ändert sich nie
 }
 
 // ---------- Helles oder dunkles Blatt ----------
@@ -257,6 +307,13 @@ export function fillStroke(ctx, stroke, built = stroke) {
   if (!built.layers && built === stroke && stroke.points.length) finishStroke(stroke);
   if (!built.layers) return;
   ctx.save();
+  if (stroke.fillPath && built === stroke) {
+    // Füllung zuerst, der Rand kommt darüber
+    ctx.fillStyle = displayColor(stroke.fill);
+    ctx.globalAlpha = stroke.fillAlpha;
+    ctx.fill(stroke.fillPath);
+    ctx.globalAlpha = 1;
+  }
   if (stroke.tool === 'highlighter') {
     const opacity = stroke.opacity ?? 0.45;
     if (inkTheme.dark) {
@@ -372,5 +429,5 @@ export function cutStroke(stroke, x, y, r) {
 
   return pieces
     .filter((pts) => pts.length >= 2) // winzige Krümel weglassen
-    .map((pts) => finishStroke({ ...stroke, points: pts, layers: null, box: null }));
+    .map((pts) => finishStroke({ ...stroke, points: pts, layers: null, box: null, fill: null, fillAlpha: 0, fillPath: null }));
 }

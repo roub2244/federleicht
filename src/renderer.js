@@ -179,7 +179,7 @@ export class Renderer {
       this.enterPage(c, i);
       for (const s of this.doc.pages[i].strokes) {
         const b = s.box;
-        if (!b || b.maxX < vis.x0 || b.minX > vis.x1 || b.maxY < y0 || b.minY > y1) continue;
+        if (!b || s.hidden || b.maxX < vis.x0 || b.minX > vis.x1 || b.maxY < y0 || b.minY > y1) continue;
         fillStroke(c, s);
       }
       c.restore();
