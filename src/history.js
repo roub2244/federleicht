@@ -54,6 +54,13 @@ export class History {
     return action;
   }
 
+  // Alles vergessen (z. B. beim Öffnen einer anderen Notiz)
+  clear() {
+    this.undoStack.length = 0;
+    this.redoStack.length = 0;
+    this.onChange();
+  }
+
   get canUndo() {
     return this.undoStack.length > 0;
   }

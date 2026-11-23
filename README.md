@@ -1,9 +1,10 @@
-# Federleicht – Etappe 3
+# Federleicht – Etappe 4
 
 Deine eigene Notiz-App für das Galaxy Tab S10 FE mit S Pen.
 Etappe 1: **installierbare Offline-App + Zeichenfläche**, auf der du flüssig mit dem Stift schreibst.
 Etappe 2: **Werkzeugleiste** wie bei Samsung Notes: Stift, Textmarker, Radierer, Rückgängig und Wiederholen.
 Etappe 3: **Seitenvorlagen und mehrere Seiten** pro Notiz, dazu ein **dunkles Blatt** im Dunkelmodus.
+Etappe 4: **Alles wird gespeichert**, dazu ein **Startbildschirm** mit Ordnern und eine **Scroll-Sperre**.
 
 Was schon geht:
 
@@ -43,7 +44,26 @@ Was schon geht:
 - **Offline**: Nach dem ersten Öffnen läuft die App ohne Internet
 - **Installierbar**: eigener Name, eigenes Icon, startet ohne Browser-Leiste
 
-Noch nicht: Speichern (kommt in Etappe 4). Wenn du die App schließt, ist das Blatt wieder leer.
+**Neu in Etappe 4:**
+
+- **Automatisch speichern:** Jeder Strich ist nach etwa einer Drittelsekunde gespeichert (oben links unter dem Titel
+  steht kurz „Gespeichert“). Es gibt keinen Speichern-Knopf, du musst an nichts denken.
+- **Genau dort weitermachen:** Startet die App neu (z. B. weil Android sie beim Trennen der Tastatur neu lädt,
+  oder nach dem Wegwischen), öffnet sie dieselbe Notiz an derselben Stelle mit demselben Zoom und Stift.
+- **Startbildschirm** (Pfeil oben links): alle Notizen als Kärtchen mit Vorschaubild der ersten Seite, Titel, Datum und Seitenzahl.
+  Links: **Alle Notizen**, **Favoriten**, deine **Ordner** (mit Farbe) und der **Papierkorb**. Suchen (nach Titel) und Sortieren oben rechts.
+  Der runde **Stift-Knopf** unten rechts legt eine neue Notiz an (im gerade offenen Ordner).
+  Eine neue Notiz, in die du nichts schreibst, verschwindet beim Zurückgehen von selbst.
+- **„…“ oder lange drücken** auf einer Notiz: umbenennen, Favorit, in Ordner verschieben, duplizieren, löschen.
+  Den Titel kannst du auch in der Notiz ändern: oben links auf den Titel tippen.
+- **Papierkorb:** Gelöschte Notizen bleiben 30 Tage dort und lassen sich wiederherstellen.
+  Ordner löschen löscht keine Notizen, die landen dann unter „Alle Notizen“.
+- **Sicherung** (unten in der Seitenleiste): alles als eine Datei speichern (z. B. in „Eigene Dateien“ oder Google Drive)
+  und wieder laden. **Wichtig:** Die Notizen liegen in der App selbst. Wenn du die App deinstallierst oder
+  die Website-Daten löschst, sind sie weg. Mach ab und zu eine Sicherung!
+- **Scroll-Sperre** (Schloss oben rechts): Kein Zoomen mehr, kein seitliches Verrutschen, und senkrecht scrollt
+  die Seite erst nach einem deutlichen Wisch. Kleine Bewegungen der aufliegenden Hand verschieben nichts mehr,
+  und nach dem Schreiben werden Finger etwas länger ignoriert. Nochmal tippen hebt die Sperre auf.
 
 ---
 
@@ -89,6 +109,9 @@ npm run preview    # zeigt die fertige Version an (mit Service Worker)
 | `src/colorpicker.js` | Farbraster und Spektrum (Farbton-Balken + Farbfeld, HEX-Eingabe) |
 | `src/wheel.js` | Das Schnellmenü-Rad |
 | `src/history.js` | Rückgängig und Wiederholen mit zwei Stapeln (Striche, Seiten und Vorlagen) |
+| `src/store.js` | **Der Speicher.** IndexedDB mit drei „Schubladen“: Notizen, Seiten, Ordner. Packt Striche platzsparend ein (Float32Array) und macht die Sicherungsdatei |
+| `src/home.js` | Der Startbildschirm: Seitenleiste mit Ordnern, Notiz-Kärtchen mit Vorschaubild, Menüs, Papierkorb, Sicherung |
+| `src/dialog.js` | Eigene kleine Fenster (Name eingeben, Nachfragen, Ordner wählen) und die kurzen Meldungen unten |
 | `src/document.js` | Die Notiz: Liste der Seiten, jede mit Vorlage und eigenen Strichen, und wo welche Seite liegt |
 | `src/templates.js` | Die Seitenvorlagen: malt Linien, Karos, Punkte … frisch und scharf, nur den sichtbaren Teil. Papierfarben |
 | `src/pages.js` | Vorlagen-Menü, „Seite hinzufügen“, Seitenanzeige und die Seitenübersicht mit Ziehen zum Umsortieren |
@@ -154,6 +177,16 @@ Jeder Strich hat eine Nummer `z`. Daran erkennen wir beim Wiedereinfügen, an we
 
 **8. Bereichs-Radierer (Etappe 2).** Ein Strich ist eine Liste von Punkten. `cutStroke()` wirft alle Punkte weg, die im
 Radierer-Kreis liegen. Was davor und dahinter übrig bleibt, wird zu neuen, kleineren Strichen.
+
+**9. Speichern ohne Speichern-Knopf (Etappe 4).** Jede Änderung ruft `markDirty()` in `main.js` auf und merkt sich,
+welche Seiten sich geändert haben. 300 ms später speichern wir genau diese Seiten in IndexedDB, alles in einer
+„Transaktion“ (entweder klappt alles oder nichts). Geht die App in den Hintergrund, speichern wir sofort.
+Daneben merken wir uns in `localStorage` die „Sitzung“: welche Notiz offen ist und welche Stelle der Seite oben links
+zu sehen ist. Beim Start wird beides wiederhergestellt.
+
+**10. Striche erst beim Anschauen berechnen (Etappe 4).** Gespeichert werden nur die Punkte, nicht die fertige Form.
+Beim Öffnen einer Notiz berechnet `fillStroke()` die Form eines Strichs erst, wenn er das erste Mal zu sehen ist.
+Darum öffnen sich auch volle Hefte schnell.
 
 ---
 

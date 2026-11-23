@@ -11,6 +11,10 @@
 //   1 Finger     -> verschieben
 //   2 Finger     -> zoomen
 //   Handballen   -> ignorieren
+//
+// Scroll-Sperre (Schloss oben rechts, app.isLocked()):
+//   kein Zoomen, kein seitliches Verrutschen, senkrecht scrollen erst nach einem
+//   deutlichen Wisch (LOCK_DEADZONE) – damit beim Schreiben nichts verrutscht.
 
 // Wie lange nach einer Stift-Aktivität Finger ignoriert werden (Millisekunden).
 // Grund: Wenn du schreibst, liegt deine Hand auf dem Display.
@@ -20,6 +24,11 @@ const PALM_SIZE = 45;
 // Kurz bevor die Spitze aufsetzt, meldet das Tablet "Knopf los" (buttons = 0).
 // Deshalb zählt ein Knopf, der vor weniger als ARM_MS losgelassen wurde, noch als gedrückt.
 const ARM_MS = 400;
+// Mit Scroll-Sperre: noch länger nach dem Stift keine Finger annehmen
+const PEN_GRACE_LOCKED_MS = 1200;
+// Mit Scroll-Sperre: So weit (Pixel) muss ein Finger bewusst senkrecht wischen, bevor sich etwas bewegt.
+// Kleine Bewegungen der aufliegenden Hand verschieben die Seite dann nicht mehr.
+const LOCK_DEADZONE = 24;
 // Kommt so lange (ms) kein Event vom aufliegenden Stift, gilt er als abgehoben
 const STALE_MS = 250;
 // Kurzer Klick auf den Knopf beim Schweben (kürzer als CLICK_MS) schaltet den Radierer dauerhaft an/aus
@@ -313,6 +322,7 @@ export function setupInput(canvas, app) {
   // Für den Schwung beim Loslassen: die letzten Positionen eines einzelnen Fingers
   let flingSamples = [];
   let multiTouch = false; // waren in dieser Geste schon mal zwei Finger da? (dann kein Schwung)
+  let lockAnchor = null;  // Scroll-Sperre: wo die Geste angefangen hat { cx, cy, engaged }
 
   function handleTouch(e) {
     const id = e.pointerId;
@@ -352,7 +362,8 @@ export function setupInput(canvas, app) {
     }
 
     if (e.type === 'pointerdown') {
-      const penNearby = penMode !== 'none' || e.timeStamp - lastPenTime < PEN_GRACE_MS;
+      const grace = app.isLocked() ? PEN_GRACE_LOCKED_MS : PEN_GRACE_MS;
+      const penNearby = penMode !== 'none' || e.timeStamp - lastPenTime < grace;
       const tooBig = Math.max(e.width || 0, e.height || 0) > PALM_SIZE;
       if (penNearby || tooBig) {
         ignored.add(id);
@@ -360,6 +371,7 @@ export function setupInput(canvas, app) {
       }
       capture(id);
       touches.set(id, screenPos(e));
+      lockAnchor = null; // neuer Finger -> Geste beginnt neu
       if (touches.size === 1) {
         multiTouch = false;
         flingSamples = [];
@@ -375,6 +387,8 @@ export function setupInput(canvas, app) {
 
     if (ended) {
       touches.delete(id);
+      const lockedSwipe = lockAnchor?.engaged;
+      lockAnchor = null;
       // Letzter Finger losgelassen: Wie schnell war er zuletzt? -> mit Schwung weiterrollen
       if (touches.size === 0 && !multiTouch && e.type === 'pointerup') {
         const recent = flingSamples.filter((s) => e.timeStamp - s.t < 90);
@@ -384,7 +398,10 @@ export function setupInput(canvas, app) {
           const dt = Math.max(1, b.t - a.t);
           const vx = (b.x - a.x) / dt;
           const vy = (b.y - a.y) / dt;
-          if (Math.hypot(vx, vy) > 0.25) app.fling(vx, vy);
+          if (app.isLocked()) {
+            // gesperrt: nur senkrecht weiterrollen, und nur nach einem echten Wisch
+            if (lockedSwipe && Math.abs(vy) > 0.25) app.fling(0, vy);
+          } else if (Math.hypot(vx, vy) > 0.25) app.fling(vx, vy);
         }
       }
       return 'Finger';
@@ -397,6 +414,21 @@ export function setupInput(canvas, app) {
     if (touches.size === 1) {
       flingSamples.push({ t: e.timeStamp, x: after.cx, y: after.cy });
       if (flingSamples.length > 8) flingSamples.shift();
+    }
+
+    if (app.isLocked()) {
+      // Scroll-Sperre: erst ab einem deutlichen senkrechten Wisch bewegen, nie zoomen, nie seitlich
+      if (!lockAnchor) lockAnchor = { cx: before.cx, cy: before.cy, engaged: false };
+      if (!lockAnchor.engaged) {
+        const dx = after.cx - lockAnchor.cx;
+        const dy = after.cy - lockAnchor.cy;
+        if (Math.abs(dy) < LOCK_DEADZONE || Math.abs(dy) < Math.abs(dx) * 1.3) return 'Gesperrt (wartet auf Wisch)';
+        lockAnchor.engaged = true;
+        app.panBy(0, dy); // den Weg bis hierher nachholen
+        return 'Scrollen (gesperrt: nur senkrecht)';
+      }
+      app.panBy(0, after.cy - before.cy);
+      return 'Scrollen (gesperrt: nur senkrecht)';
     }
 
     app.panBy(after.cx - before.cx, after.cy - before.cy); // Mitte bewegt -> verschieben
@@ -444,7 +476,8 @@ export function setupInput(canvas, app) {
       e.preventDefault();
       const [x, y] = screenPos(e);
       app.stopFling();
-      if (e.ctrlKey) app.zoomAt(x, y, Math.exp(-e.deltaY * 0.01));
+      if (app.isLocked()) app.panBy(0, -e.deltaY);
+      else if (e.ctrlKey) app.zoomAt(x, y, Math.exp(-e.deltaY * 0.01));
       else app.panBy(-e.deltaX, -e.deltaY);
     },
     { passive: false }

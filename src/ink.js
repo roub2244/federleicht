@@ -204,6 +204,8 @@ export function highlighterColor(hex, opacity, paper = '#ffffff') {
 //  - zweimal derselbe Marker übereinander -> gleich dunkel, wird NICHT dunkler (wie gewünscht)
 // Auf dunklem Papier ist es genau andersherum: "lighten" (aufhellen) – die helle Schrift bleibt oben.
 export function fillStroke(ctx, stroke, built = stroke) {
+  // Frisch geladene Striche bekommen ihre Form erst, wenn sie zum ersten Mal zu sehen sind
+  if (!built.layers && built === stroke && stroke.points.length) finishStroke(stroke);
   if (!built.layers) return;
   ctx.save();
   if (stroke.tool === 'highlighter') {

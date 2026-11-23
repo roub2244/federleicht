@@ -14,19 +14,24 @@
 // "Dokument-Koordinaten" = Position auf diesem langen Streifen.
 
 import { PAGE_HEIGHT } from './view.js';
+import { uid } from './store.js';
 
 export const PAGE_GAP = 28;     // Abstand zwischen zwei Seiten (Seiten-Einheiten)
 export const END_SPACE = 170;   // Platz unter der letzten Seite für den "+ Seite"-Knopf
 
-let nextId = 1;
-
+// Jede Seite bekommt eine eindeutige Nummer – darunter liegt sie im Speicher (store.js)
 export function createPage(template) {
-  return { id: nextId++, template: { ...template }, strokes: [] };
+  return { id: uid(), template: { ...template }, strokes: [] };
 }
 
 export class NoteDocument {
   constructor(template) {
     this.pages = [createPage(template)];
+  }
+
+  // Eine andere Notiz öffnen: alle Seiten austauschen
+  load(pages) {
+    this.pages = pages.length ? pages : [createPage(this.pages[0]?.template)];
   }
 
   get count() {

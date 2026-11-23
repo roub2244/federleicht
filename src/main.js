@@ -3,10 +3,10 @@ import './style.css';
 import './paint.js'; // Farbflächen auf Canvas (gegen den Dunkelmodus von Samsung Internet)
 import { View, PAGE_HEIGHT } from './view.js';
 import { NoteDocument, createPage, END_SPACE } from './document.js';
-import { DEFAULT_TEMPLATE } from './templates.js';
+import { DEFAULT_TEMPLATE, drawThumbnail, paperColor } from './templates.js';
 import { setupPages } from './pages.js';
 import { Renderer } from './renderer.js';
-import { createStroke, buildPath, finishStroke, fillStroke, strokeHit, cutStroke } from './ink.js';
+import { createStroke, buildPath, finishStroke, fillStroke, strokeHit, cutStroke, inkTheme, setInkTheme, displayColor } from './ink.js';
 import { setupInput } from './input.js';
 import { Debug } from './debug.js';
 import { HoldDetector, linePoints, averagePressure, longEnough } from './straighten.js';
@@ -14,6 +14,9 @@ import { History } from './history.js';
 import { loadTools, saveTools, activeStyle, settingsOf } from './tools.js';
 import { setupToolbar } from './toolbar.js';
 import { setupWheel } from './wheel.js';
+import * as store from './store.js';
+import { setupHome } from './home.js';
+import { askText, toast } from './dialog.js';
 
 // ---------- Einstellungen ----------
 // Farbe, Dicke, Stiftart usw. kommen aus der Werkzeugleiste (siehe tools.js)
@@ -39,6 +42,7 @@ let lastErase = null;    // letzte Radierer-Position
 let erasing = null;      // was beim aktuellen Radieren passiert ist: Seite -> { added: [], removed: [] }
 let pages = null;        // Seiten-Menüs (siehe pages.js), wird weiter unten eingerichtet
 let nextZ = 1;           // z-Nummer für den nächsten neuen Strich (höher = weiter oben)
+let home = null;         // Startbildschirm (siehe home.js), wird weiter unten eingerichtet
 
 // Rückgängig/Wiederholen: bei jeder Änderung die Knöpfe an- oder ausgrauen
 const history = new History(() => {
@@ -104,6 +108,7 @@ const app = {
       renderer.commitStroke(current, doc.pages.indexOf(currentPage));
       history.push({ strokes: [{ page: currentPage, added: [current], removed: [] }] });
       pages.strokesChanged();
+      markDirty([currentPage]);
     } else {
       renderer.setOverlay(null);
     }
@@ -136,7 +141,10 @@ const app = {
     lastErase = null;
     // das ganze Radieren ist EIN Schritt zum Rückgängigmachen (auch über mehrere Seiten)
     if (erasing) history.push({ strokes: [...erasing].map(([page, c]) => ({ page, ...c })) });
-    if (erasing?.size) pages.strokesChanged();
+    if (erasing?.size) {
+      pages.strokesChanged();
+      markDirty([...erasing.keys()]);
+    }
     erasing = null;
   },
 
@@ -193,6 +201,11 @@ const app = {
   zoomAt(x, y, factor) {
     view.zoomAt(x, y, factor);
     afterViewChange();
+  },
+
+  // Scroll-Sperre an? (dann kein Zoomen und kein seitliches Verrutschen, siehe input.js)
+  isLocked() {
+    return viewLocked;
   },
 };
 
@@ -310,6 +323,8 @@ function applyAction(action, forward) {
     insertStrokes(c.page.strokes, forward ? c.added : c.removed);
   }
   pagesChanged();
+  const touched = [...(action.strokes || []), ...(action.templates || [])].map((c) => c.page);
+  markDirty(touched, Boolean(action.pages));
 }
 
 function undo() {
@@ -336,6 +351,7 @@ function changePages(fn) {
   fn(doc.pages);
   history.push({ pages: { before, after: [...doc.pages] } });
   pagesChanged();
+  markDirty([], true);
 }
 
 // Nach jeder Änderung an den Seiten: Höhe neu, neu malen, Menüs aktualisieren
@@ -375,6 +391,7 @@ function setTemplate(indices, tpl) {
   history.push({ templates });
   saveJSON('pageTemplate', tpl); // die nächste neue Notiz fängt mit dieser Vorlage an
   pagesChanged();
+  markDirty(templates.map((t) => t.page));
 }
 
 // ---------- Weiches Scrollen ----------
@@ -455,6 +472,7 @@ function afterViewChange() {
   renderer.requestRender();
   zoomButton.textContent = `${Math.round((view.scale / view.fitScale) * 100)} %`;
   pages?.onViewChange();
+  scheduleSession();
 }
 
 const input = setupInput(canvas, app);
@@ -476,6 +494,7 @@ const toolbar = setupToolbar({
     page.strokes.length = 0;
     renderer.requestRender();
     pages.strokesChanged();
+    markDirty([page]);
   },
 });
 input.setStickyEraser(tools.tool === 'eraser');
@@ -491,6 +510,7 @@ function applyTheme() {
   document.documentElement.classList.toggle('dark-paper', renderer.darkPaper);
   renderer.requestRender();
   pages?.refresh();
+  home?.refresh();
 }
 
 pages = setupPages({
@@ -546,6 +566,7 @@ redoButton.addEventListener('click', redo);
 
 // Am PC: Strg+Z = Rückgängig, Strg+Y oder Strg+Umschalt+Z = Wiederholen
 window.addEventListener('keydown', (e) => {
+  if (home.open || document.querySelector('.dlg-back')) return;
   if (!(e.ctrlKey || e.metaKey)) return;
   const key = e.key.toLowerCase();
   if (key === 'z' && !e.shiftKey) undo();
@@ -556,6 +577,7 @@ window.addEventListener('keydown', (e) => {
 
 // Am PC: Bild auf/ab = Seite vor/zurück
 window.addEventListener('keydown', (e) => {
+  if (home.open || document.querySelector('.dlg-back')) return;
   if (e.key === 'PageDown') goTo(Math.min(doc.count - 1, currentIndex() + 1));
   else if (e.key === 'PageUp') goTo(Math.max(0, currentIndex() - 1));
 });
@@ -563,11 +585,15 @@ window.addEventListener('keydown', (e) => {
 // ---------- Größe der Zeichenfläche ----------
 // ResizeObserver meldet sich, wenn sich die Größe ändert (z. B. Tablet drehen)
 view.setContentHeight(doc.height + END_SPACE);
+let markSized;
+const firstSize = new Promise((resolve) => (markSized = resolve));
 new ResizeObserver(() => {
+  if (!stage.clientWidth || !stage.clientHeight) return;
   view.setSize(stage.clientWidth, stage.clientHeight);
   renderer.resize(stage.clientWidth, stage.clientHeight);
   input.updateRect();
   afterViewChange();
+  markSized();
 }).observe(stage);
 
 // Hell-/Dunkelmodus gewechselt -> Farben neu lesen, Blatt hell oder dunkel
@@ -610,6 +636,333 @@ installButton.addEventListener('click', async () => {
   installPrompt = null;
   installButton.hidden = true;
 });
+
+// ---------- Scroll-Sperre ----------
+// Schloss oben rechts: kein Zoomen, kein seitliches Verrutschen, senkrecht erst nach deutlichem Wisch
+const lockButton = document.getElementById('btn-lock');
+let viewLocked = readSetting('scrollLock', 'off') === 'on';
+function applyLock() {
+  lockButton.classList.toggle('active', viewLocked);
+  lockButton.classList.toggle('locked', viewLocked);
+  lockButton.setAttribute('aria-pressed', String(viewLocked));
+  lockButton.title = viewLocked ? 'Scroll-Sperre an (antippen zum Lösen)' : 'Scroll-Sperre';
+}
+lockButton.addEventListener('click', () => {
+  viewLocked = !viewLocked;
+  saveSetting('scrollLock', viewLocked ? 'on' : 'off');
+  applyLock();
+  stopScrollAnimation();
+  toast(viewLocked ? 'Scroll-Sperre an: kein Zoomen, nichts verrutscht' : 'Scroll-Sperre aus');
+});
+applyLock();
+
+// ======================================================================
+// Speichern (Etappe 4)
+// ======================================================================
+//
+// Jede Änderung (Strich, Radieren, Seite, Vorlage, Rückgängig …) meldet sich bei markDirty().
+// Kurz danach (SAVE_DELAY) speichern wir genau die geänderten Seiten in IndexedDB (store.js).
+// Wird die App weggewischt oder vom System neu gestartet, speichern wir sofort.
+// Dazu merken wir uns laufend, welche Notiz offen ist und wohin du gescrollt hast ("Sitzung").
+// So geht es nach einem Neustart genau dort weiter, wo du warst.
+
+const SAVE_DELAY = 300;     // ms nach der letzten Änderung
+const THUMB_EVERY = 2500;   // Vorschaubild höchstens so oft neu malen (ms)
+const THUMB_WIDTH = 360;    // Breite des Vorschaubilds (Pixel)
+
+let note = null;                 // die offene Notiz (Titel, Ordner, Seitenliste …)
+let savedPageIds = new Set();    // welche Seiten liegen schon im Speicher?
+const dirtyPages = new Set();    // welche Seiten haben sich seit dem Speichern geändert?
+let noteDirty = false;           // Titel/Seitenreihenfolge geändert?
+let thumbDirty = false;          // Vorschaubild veraltet?
+let saveTimer = 0;
+let thumbTimer = 0;
+let lastThumbAt = 0;
+let saveChain = Promise.resolve();
+
+const titleButton = document.getElementById('note-title');
+const titleText = titleButton.querySelector('.nt-text');
+const saveStateEl = titleButton.querySelector('.nt-state');
+let saveStateTimer = 0;
+
+function setSaveState(state) {
+  clearTimeout(saveStateTimer);
+  saveStateEl.dataset.state = state;
+  saveStateEl.textContent = { saving: 'Speichert …', saved: 'Gespeichert', error: 'Nicht gespeichert!' }[state] || '';
+  if (state === 'saved') saveStateTimer = setTimeout(() => (saveStateEl.dataset.state = 'idle'), 1600);
+}
+
+function markDirty(list, structure = false) {
+  if (!note) return;
+  for (const page of list) dirtyPages.add(page);
+  if (structure) noteDirty = true;
+  if (structure || list.includes(doc.pages[0])) thumbDirty = true;
+  if (note.fresh) {
+    delete note.fresh; // jetzt steht etwas drin -> beim Schließen nicht mehr wegräumen
+    noteDirty = true;
+  }
+  setSaveState('saving');
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => saveNow(), SAVE_DELAY);
+}
+
+// Speichern anstoßen. Mehrere Aufrufe laufen nacheinander, nie gleichzeitig.
+function saveNow({ thumbs = false } = {}) {
+  clearTimeout(saveTimer);
+  saveTimer = 0;
+  saveChain = saveChain
+    .then(() => writeNote(thumbs))
+    .catch((err) => {
+      console.error('Speichern fehlgeschlagen', err);
+      setSaveState('error');
+      toast('Speichern hat nicht geklappt – Speicher voll?');
+    });
+  return saveChain;
+}
+
+async function writeNote(forceThumbs) {
+  const target = note;
+  if (!target) return;
+  const content = dirtyPages.size > 0 || noteDirty;
+  const thumbsNow = thumbDirty && (forceThumbs || performance.now() - lastThumbAt > THUMB_EVERY);
+  if (!content && !thumbsNow) {
+    if (!saveTimer) setSaveState(thumbDirty ? 'saving' : 'saved');
+    if (thumbDirty) scheduleThumb();
+    return;
+  }
+
+  // Jetzt sofort (ohne zu warten) festhalten, was gespeichert wird – danach darf weitergeschrieben werden
+  const ids = doc.pages.map((p) => p.id);
+  const toPut = doc.pages.filter((p) => dirtyPages.has(p) || !savedPageIds.has(p.id)).map((p) => store.packPage(p, target.id));
+  const removed = [...savedPageIds].filter((id) => !ids.includes(id));
+  dirtyPages.clear();
+  noteDirty = false;
+  if (content) {
+    target.updated = Date.now();
+    target.pageIds = ids;
+    target.pageCount = ids.length;
+    target.firstTemplate = { ...doc.pages[0].template };
+    target.thumbStale = thumbDirty; // merken, falls die App vor dem nächsten Vorschaubild beendet wird
+  }
+  let thumbs = null;
+  if (thumbsNow) {
+    thumbDirty = false;
+    lastThumbAt = performance.now();
+    thumbs = makeThumbs(); // malt sofort, wartet nur noch auf die fertigen Bilddateien
+  } else if (thumbDirty) scheduleThumb();
+
+  if (thumbs) Object.assign(target, await thumbs, { thumbAt: Date.now(), thumbStale: false });
+  await store.saveNote(target, toPut, removed);
+  for (const id of removed) savedPageIds.delete(id);
+  for (const p of toPut) savedPageIds.add(p.id);
+  if (note === target && !saveTimer && !dirtyPages.size) setSaveState('saved');
+}
+
+function scheduleThumb() {
+  if (thumbTimer) return;
+  thumbTimer = setTimeout(() => {
+    thumbTimer = 0;
+    saveNow({ thumbs: true });
+  }, THUMB_EVERY);
+}
+
+// Vorschaubild der ersten Seite – einmal mit hellem und einmal mit dunklem Blatt
+function makeThumbs() {
+  const page = doc.pages[0];
+  const saved = { ...inkTheme };
+  const canvases = [false, true].map((dark) => {
+    const c = document.createElement('canvas');
+    setInkTheme(dark, paperColor(page.template.paper, dark));
+    drawThumbnail(c, page.template, { dark, faint: true, strokes: page.strokes, fill: thumbStroke, width: THUMB_WIDTH });
+    return c;
+  });
+  setInkTheme(saved.dark, saved.paper);
+  const blob = (c) =>
+    new Promise((resolve) => c.toBlob((b) => (b && b.type === 'image/webp' ? resolve(b) : c.toBlob(resolve, 'image/png')), 'image/webp', 0.86));
+  return Promise.all(canvases.map(blob)).then(([thumbLight, thumbDark]) => ({ thumbLight, thumbDark }));
+}
+
+// Im kleinen Vorschaubild wären dünne Striche kaum zu sehen: mit feinem Rand etwas kräftiger malen
+function thumbStroke(ctx, stroke) {
+  fillStroke(ctx, stroke);
+  if (stroke.tool === 'highlighter' || !stroke.layers) return;
+  ctx.save();
+  ctx.strokeStyle = displayColor(stroke.color);
+  ctx.lineWidth = 0.7 / ctx.getTransform().a; // etwa 0,7 Pixel im Vorschaubild
+  ctx.lineJoin = 'round';
+  for (const layer of stroke.layers) {
+    ctx.globalAlpha = layer.alpha;
+    ctx.stroke(layer.path);
+  }
+  ctx.restore();
+}
+
+// ---------- Sitzung: offene Notiz und Ansicht merken ----------
+let sessionTimer = 0;
+
+function captureView() {
+  const [left, top] = view.toPage(0, 0);
+  return { left, top, zoom: view.scale / view.fitScale };
+}
+
+function restoreView(v) {
+  if (!v || !Number.isFinite(v.top) || !Number.isFinite(v.zoom)) return false;
+  view.scale = Math.min(6, Math.max(0.12, v.zoom * view.fitScale));
+  view.x = -v.left * view.scale;
+  view.y = -v.top * view.scale;
+  view.clamp();
+  return true;
+}
+
+function saveSession() {
+  clearTimeout(sessionTimer);
+  sessionTimer = 0;
+  saveJSON('session', note ? { screen: 'note', noteId: note.id, view: captureView(), at: Date.now() } : { screen: 'home' });
+}
+
+function scheduleSession() {
+  if (!note || sessionTimer) return;
+  sessionTimer = setTimeout(saveSession, 400);
+}
+
+// App geht in den Hintergrund oder wird beendet/neu gestartet -> sofort alles sichern
+function flushAll() {
+  saveSession();
+  if (note) saveNow({ thumbs: thumbDirty });
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') flushAll();
+});
+window.addEventListener('pagehide', flushAll);
+
+// ---------- Notizen öffnen, anlegen, schließen ----------
+
+function showTitle() {
+  titleText.textContent = note?.title || 'Ohne Titel';
+  document.title = note ? `${note.title || 'Ohne Titel'} – Federleicht` : 'Federleicht';
+}
+
+async function openNote(id, savedView = null) {
+  await leaveNote();
+  const meta = await store.getNote(id);
+  if (!meta || meta.deletedAt) return false;
+  const loaded = (await store.getPages(meta.pageIds || [])).map(store.unpackPage);
+
+  stopScrollAnimation();
+  toolbar.closePopup();
+  pages.closeAll();
+  current = null;
+  erasing = null;
+  note = meta;
+  doc.load(loaded.length ? loaded : [createPage(meta.firstTemplate || DEFAULT_TEMPLATE)]);
+  savedPageIds = new Set(loaded.map((p) => p.id));
+  dirtyPages.clear();
+  noteDirty = !loaded.length;
+  // Vorschaubild fehlt oder ist veraltet (App wurde beendet, bevor es fertig war) -> gleich neu malen
+  thumbDirty = !meta.thumbLight || Boolean(meta.thumbStale);
+  nextZ = 1;
+  for (const p of doc.pages) for (const st of p.strokes) nextZ = Math.max(nextZ, st.z + 1);
+  history.clear();
+
+  // Ansicht: wie beim letzten Mal, sonst Seite 1 in voller Breite
+  view.setContentHeight(doc.height + END_SPACE);
+  if (!restoreView(savedView)) {
+    view.fitToWidth();
+    view.y = view.yFor(0);
+    view.clamp();
+  }
+  showTitle();
+  setSaveState('idle');
+  home.hide();
+  pagesChanged();
+  renderer.renderNow();
+  saveSession();
+  if (noteDirty || thumbDirty) saveNow({ thumbs: true });
+  return true;
+}
+
+// Neue Notiz (im gerade offenen Ordner) anlegen und gleich öffnen
+async function createNote(folderId = null) {
+  const tpl = loadJSON('pageTemplate', DEFAULT_TEMPLATE);
+  const page = createPage(tpl);
+  const now = Date.now();
+  const meta = {
+    id: store.uid(),
+    title: defaultTitle(),
+    folderId,
+    created: now,
+    updated: now,
+    favorite: false,
+    deletedAt: null,
+    pageIds: [page.id],
+    pageCount: 1,
+    firstTemplate: { ...tpl },
+    fresh: true, // noch nie etwas hineingeschrieben (leere Notizen räumen wir beim Schließen weg)
+  };
+  await store.saveNote(meta, [store.packPage(page, meta.id)]);
+  await openNote(meta.id);
+}
+
+function defaultTitle() {
+  const d = new Date();
+  return `Notiz vom ${d.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' })}, ${d.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}`;
+}
+
+// Notiz zumachen: alles speichern. Eine neue, leer gebliebene Notiz wird wieder gelöscht.
+async function leaveNote() {
+  if (!note) return;
+  if (current) app.endStroke();
+  if (erasing) app.endErase();
+  const leaving = note;
+  await saveNow({ thumbs: true });
+  if (leaving.fresh && doc.pages.every((p) => p.strokes.length === 0)) {
+    await store.deleteNoteForever(leaving);
+  }
+  note = null;
+  history.clear();
+}
+
+async function goHome() {
+  await leaveNote();
+  showTitle();
+  saveSession();
+  await home.show();
+}
+
+home = setupHome({
+  openNote: (id) => openNote(id),
+  createNote,
+  darkPaper: () => renderer.darkPaper,
+});
+
+document.getElementById('btn-home').addEventListener('click', goHome);
+
+titleButton.addEventListener('click', async () => {
+  if (!note) return;
+  const text = await askText({ title: 'Notiz umbenennen', value: note.title || '', placeholder: 'Titel' });
+  if (!text || !note) return;
+  note.title = text;
+  showTitle();
+  markDirty([], true);
+});
+
+// ---------- Start ----------
+// Erst wenn die Zeichenfläche ihre Größe kennt, die letzte Sitzung wiederherstellen
+async function boot() {
+  await firstSize;
+  const session = loadJSON('session', {});
+  let opened = false;
+  try {
+    await store.openDB();
+    if (session.screen === 'note' && session.noteId) opened = await openNote(session.noteId, session.view);
+    if (!opened) await home.show();
+  } catch (err) {
+    console.error(err);
+    toast('Der Speicher lässt sich nicht öffnen – Notizen werden nicht gespeichert!');
+  }
+  document.documentElement.classList.remove('booting');
+}
+boot();
 
 // ---------- Offline-Fähigkeit ----------
 // Den Service Worker nur in der fertigen Version anmelden (nicht beim Entwickeln)
