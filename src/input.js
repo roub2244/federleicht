@@ -13,8 +13,8 @@
 //   Handballen   -> ignorieren
 //
 // Scroll-Sperre (Schloss oben rechts, app.isLocked()):
-//   kein Zoomen, kein seitliches Verrutschen, senkrecht scrollen erst nach einem
-//   deutlichen Wisch (LOCK_DEADZONE) – damit beim Schreiben nichts verrutscht.
+//   EIN Finger (oder die aufliegende Hand) bewegt gar nichts mehr. Scrollen geht nur
+//   noch bewusst mit ZWEI Fingern, und nur senkrecht, ohne Zoomen und ohne Schwung.
 
 // Wie lange nach einer Stift-Aktivität Finger ignoriert werden (Millisekunden).
 // Grund: Wenn du schreibst, liegt deine Hand auf dem Display.
@@ -471,7 +471,11 @@ export function setupInput(canvas, app) {
     }
 
     if (app.isLocked()) {
-      // Scroll-Sperre: erst ab einem deutlichen senkrechten Wisch bewegen, nie zoomen, nie seitlich
+      // Scroll-Sperre: ein Finger bewegt nichts (auch kein Wisch). Nur zwei Finger scrollen senkrecht.
+      if (touches.size < 2) {
+        lockAnchor = null;
+        return 'Gesperrt (1 Finger bewegt nichts)';
+      }
       if (!lockAnchor) lockAnchor = { cx: before.cx, cy: before.cy, engaged: false };
       if (!lockAnchor.engaged) {
         const dx = after.cx - lockAnchor.cx;
@@ -479,10 +483,10 @@ export function setupInput(canvas, app) {
         if (Math.abs(dy) < LOCK_DEADZONE || Math.abs(dy) < Math.abs(dx) * 1.3) return 'Gesperrt (wartet auf Wisch)';
         lockAnchor.engaged = true;
         app.panBy(0, dy); // den Weg bis hierher nachholen
-        return 'Scrollen (gesperrt: nur senkrecht)';
+        return 'Scrollen (gesperrt: 2 Finger, senkrecht)';
       }
       app.panBy(0, after.cy - before.cy);
-      return 'Scrollen (gesperrt: nur senkrecht)';
+      return 'Scrollen (gesperrt: 2 Finger, senkrecht)';
     }
 
     app.panBy(after.cx - before.cx, after.cy - before.cy); // Mitte bewegt -> verschieben

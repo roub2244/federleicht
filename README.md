@@ -62,9 +62,9 @@ Was schon geht:
 - **Sicherung** (unten in der Seitenleiste): alles als eine Datei speichern (z. B. in „Eigene Dateien“ oder Google Drive)
   und wieder laden. **Wichtig:** Die Notizen liegen in der App selbst. Wenn du die App deinstallierst oder
   die Website-Daten löschst, sind sie weg. Mach ab und zu eine Sicherung!
-- **Scroll-Sperre** (Schloss oben rechts): Kein Zoomen mehr, kein seitliches Verrutschen, und senkrecht scrollt
-  die Seite erst nach einem deutlichen Wisch. Kleine Bewegungen der aufliegenden Hand verschieben nichts mehr,
-  und nach dem Schreiben werden Finger etwas länger ignoriert. Nochmal tippen hebt die Sperre auf.
+- **Scroll-Sperre** (Schloss oben rechts): Ein Finger oder die aufliegende Hand bewegt gar nichts mehr,
+  kein Zoomen, kein Verrutschen. Scrollen geht dann nur noch mit **zwei Fingern** (senkrecht).
+  Nochmal tippen hebt die Sperre auf.
 
 **Neu in Etappe 7:**
 

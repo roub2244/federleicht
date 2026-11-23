@@ -1224,14 +1224,14 @@ function applyLock() {
   lockButton.classList.toggle('active', viewLocked);
   lockButton.classList.toggle('locked', viewLocked);
   lockButton.setAttribute('aria-pressed', String(viewLocked));
-  lockButton.title = viewLocked ? 'Scroll-Sperre an (antippen zum Lösen)' : 'Scroll-Sperre';
+  lockButton.title = viewLocked ? 'Scroll-Sperre an: scrollen nur mit 2 Fingern (antippen zum Lösen)' : 'Scroll-Sperre';
 }
 lockButton.addEventListener('click', () => {
   viewLocked = !viewLocked;
   saveSetting('scrollLock', viewLocked ? 'on' : 'off');
   applyLock();
   stopScrollAnimation();
-  toast(viewLocked ? 'Scroll-Sperre an: kein Zoomen, nichts verrutscht' : 'Scroll-Sperre aus');
+  toast(viewLocked ? 'Scroll-Sperre an: 1 Finger bewegt nichts mehr – scrollen mit 2 Fingern' : 'Scroll-Sperre aus');
 });
 applyLock();
 
