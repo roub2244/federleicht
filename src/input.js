@@ -170,7 +170,31 @@ export function setupInput(canvas, app) {
   // Knopf gerade gedrückt oder erst ganz kurz losgelassen?
   const eraserReady = (time) => buttonHeld || time - buttonReleasedAt < ARM_MS;
 
+  // ---------- Text-Werkzeug ----------
+  // Statt zu zeichnen: kurz tippen = Textfeld anlegen oder bearbeiten
+  let textDown = null;
+  const TAP_MOVE = 12; // so weit (Pixel) darf sich der Stift beim Tippen bewegen
+  function handleTextPen(e) {
+    if (e.type === 'pointerdown') {
+      capture(e.pointerId);
+      textDown = { id: e.pointerId, x: e.clientX, y: e.clientY, point: pagePoint(e) };
+    } else if ((e.type === 'pointerup' || e.type === 'pointercancel') && textDown?.id === e.pointerId) {
+      const moved = Math.hypot(e.clientX - textDown.x, e.clientY - textDown.y);
+      const start = textDown.point;
+      textDown = null;
+      if (e.type !== 'pointerup') return 'Text';
+      if (moved < TAP_MOVE) app.textTap(pagePoint(e), [e.clientX, e.clientY]);
+      // Quer über die Seite gezogen: Textfeld genau so breit anlegen
+      else app.textDrag(start, pagePoint(e));
+    }
+    return 'Text';
+  }
+
   function handlePen(e) {
+    if ((app.textMode() || app.textEditing()) && penMode === 'none') {
+      lastPenTime = e.timeStamp;
+      return handleTextPen(e);
+    }
     lastPenTime = e.timeStamp;
     lastPenPos = screenPos(e);
     lastClient = [e.clientX, e.clientY];
@@ -323,6 +347,7 @@ export function setupInput(canvas, app) {
   // Für den Schwung beim Loslassen: die letzten Positionen eines einzelnen Fingers
   let flingSamples = [];
   let multiTouch = false; // waren in dieser Geste schon mal zwei Finger da? (dann kein Schwung)
+  let fingerTap = null;   // Finger aufgesetzt: wo und wann (für "Tippen" beim Text-Werkzeug)
   let lockAnchor = null;  // Scroll-Sperre: wo die Geste angefangen hat { cx, cy, engaged }
 
   function handleTouch(e) {
@@ -376,7 +401,11 @@ export function setupInput(canvas, app) {
       if (touches.size === 1) {
         multiTouch = false;
         flingSamples = [];
-      } else multiTouch = true;
+        fingerTap = { id, x: e.clientX, y: e.clientY, t: e.timeStamp };
+      } else {
+        multiTouch = true;
+        fingerTap = null;
+      }
       return 'Finger';
     }
 
@@ -388,6 +417,12 @@ export function setupInput(canvas, app) {
 
     if (ended) {
       touches.delete(id);
+      // Kurzes Tippen mit dem Finger beim Text-Werkzeug (oder während ein Textfeld offen ist)
+      if (fingerTap?.id === id && e.type === 'pointerup' && (app.textMode() || app.textEditing())) {
+        const moved = Math.hypot(e.clientX - fingerTap.x, e.clientY - fingerTap.y);
+        if (moved < 12 && e.timeStamp - fingerTap.t < 400) app.textTap(pagePoint(e), [e.clientX, e.clientY]);
+      }
+      fingerTap = null;
       const lockedSwipe = lockAnchor?.engaged;
       lockAnchor = null;
       // Letzter Finger losgelassen: Wie schnell war er zuletzt? -> mit Schwung weiterrollen

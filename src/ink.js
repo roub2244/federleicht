@@ -13,6 +13,7 @@
 //   Textmarker:     breit, durchsichtig, gerade Enden, wird beim Übermalen nicht dunkler
 
 import { getStroke } from 'perfect-freehand';
+import { drawText } from './text.js';
 
 // thinning:   wie stark der Druck die Dicke ändert (0 = gar nicht, 1 = sehr stark)
 // smoothing:  wie rund der Umriss wird
@@ -250,6 +251,8 @@ export function highlighterColor(hex, opacity, paper = '#ffffff') {
 //  - zweimal derselbe Marker übereinander -> gleich dunkel, wird NICHT dunkler (wie gewünscht)
 // Auf dunklem Papier ist es genau andersherum: "lighten" (aufhellen) – die helle Schrift bleibt oben.
 export function fillStroke(ctx, stroke, built = stroke) {
+  // Textfelder liegen mit in der Liste der Striche, malen sich aber selbst (siehe text.js)
+  if (stroke.tool === 'text') return drawText(ctx, stroke);
   // Frisch geladene Striche bekommen ihre Form erst, wenn sie zum ersten Mal zu sehen sind
   if (!built.layers && built === stroke && stroke.points.length) finishStroke(stroke);
   if (!built.layers) return;
@@ -309,6 +312,7 @@ function distanceToSegment(px, py, a, b) {
 
 // Berührt ein Radierer-Kreis (Mitte x/y, Radius r) diesen Strich?
 export function strokeHit(stroke, x, y, r) {
+  if (stroke.tool === 'text') return false; // Text radiert man nicht weg, man löscht das Textfeld
   const b = stroke.box;
   if (!b) return false;
   // Schneller Vortest: liegt der Kreis überhaupt in der Nähe?
@@ -345,6 +349,7 @@ function densify(points, step) {
 // Gibt die übrig gebliebenen Stücke als neue, fertige Striche zurück
 // (leere Liste = alles weg) oder null, wenn der Kreis den Strich gar nicht berührt.
 export function cutStroke(stroke, x, y, r) {
+  if (stroke.tool === 'text') return null;
   // Runde Enden ragen eine halbe Dicke über den letzten Punkt hinaus
   const reach = r + (styleOf(stroke).cap ? stroke.size / 2 : 0);
   const step = Math.max(0.5, Math.min(r, stroke.size) / 3);

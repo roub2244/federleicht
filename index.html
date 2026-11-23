@@ -63,6 +63,11 @@
             <path d="m9 10.5 5.5 5.5" />
           </svg>
         </button>
+        <button class="tool-btn" data-tool="text" title="Text: auf die Seite tippen, um zu schreiben" aria-label="Text">
+          <svg viewBox="0 0 24 24">
+            <path d="M5 7V5h14v2M12 5v14M9 19h6" />
+          </svg>
+        </button>
         <!-- Lieblingsstifte (Stern im Stift-Menü), lange drücken entfernt sie -->
         <div id="favorites" class="favorites" hidden></div>
       </div>
@@ -94,6 +99,9 @@
 
     <!-- Popup mit den Einstellungen des Werkzeugs (wird von toolbar.js gefüllt) -->
     <div id="popup" class="popup" hidden></div>
+    <!-- Format-Leiste für Text (erscheint, während ein Textfeld bearbeitet wird) -->
+    <div id="textbar" class="textbar" role="toolbar" aria-label="Text formatieren" hidden></div>
+    <div id="textbar-pop" class="textbar-pop" hidden></div>
     <!-- Popup mit den Seitenvorlagen (wird von pages.js gefüllt) -->
     <div id="page-popup" class="popup page-popup" hidden></div>
 

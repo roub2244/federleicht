@@ -2630,3 +2630,365 @@ body {
   font-weight: 700;
   cursor: pointer;
 }
+
+/* ---------- Text: Format-Leiste (erscheint beim Bearbeiten eines Textfelds) ---------- */
+.textbar {
+  position: fixed;
+  z-index: 9;
+  top: calc(68px + env(safe-area-inset-top));
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  max-width: calc(100vw - 16px);
+  overflow-x: auto;
+  scrollbar-width: none;
+  padding: 5px 6px;
+  border-radius: 999px;
+  background: var(--glass-strong);
+  -webkit-backdrop-filter: blur(28px) saturate(1.8);
+  backdrop-filter: blur(28px) saturate(1.8);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--menu-shadow);
+  animation: tb-in 0.18s ease-out;
+}
+
+@keyframes tb-in {
+  from { opacity: 0; transform: translate(-50%, -6px); }
+}
+
+.tb-btn,
+.tb-done {
+  position: relative;
+  flex-shrink: 0;
+  height: 40px;
+  min-width: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  padding: 0 6px;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 15px;
+  cursor: pointer;
+}
+
+.tb-btn svg,
+.tb-done svg {
+  width: 21px;
+  height: 21px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.tb-btn:active {
+  background: var(--chip);
+}
+
+.tb-btn.on {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.tb-font {
+  width: 150px;
+  justify-content: space-between;
+  padding: 0 8px 0 14px;
+  background: var(--chip);
+}
+
+.tb-font-name {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 16px;
+}
+
+.tb-font svg {
+  width: 16px;
+  height: 16px;
+  color: var(--muted);
+}
+
+.tb-size {
+  display: flex;
+  align-items: center;
+  margin-left: 4px;
+  border-radius: 999px;
+  background: var(--chip);
+}
+
+.tb-size .tb-btn {
+  min-width: 34px;
+}
+
+.tb-size-val {
+  min-width: 38px !important;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+
+.tb-sep {
+  flex-shrink: 0;
+  width: 1px;
+  height: 24px;
+  margin: 0 4px;
+  background: var(--line);
+}
+
+/* "A" mit Farbstrich darunter (Schriftfarbe) und "ab" mit Farbfläche (Hintergrund) */
+.tb-color {
+  flex-direction: column;
+  gap: 1px;
+  padding-top: 2px;
+}
+
+.tb-a,
+.tb-mark {
+  font-weight: 700;
+  font-size: 16px;
+  line-height: 1;
+}
+
+.tb-mark {
+  font-size: 14px;
+}
+
+.tb-bar {
+  position: relative;
+  display: block;
+  width: 20px;
+  height: 5px;
+  border-radius: 3px;
+  box-shadow: 0 0 0 1px rgba(128, 128, 128, 0.35);
+}
+
+.tb-bar.empty {
+  background: repeating-linear-gradient(135deg, transparent 0 3px, var(--muted) 3px 4px);
+  opacity: 0.6;
+}
+
+.tb-done {
+  gap: 6px;
+  margin-left: 2px;
+  padding: 0 16px 0 12px;
+  background: var(--accent-grad);
+  color: #fff;
+  font-weight: 650;
+}
+
+/* Kleine Menüs unter der Format-Leiste: Schriftart, Größe, Farben */
+.textbar-pop {
+  position: fixed;
+  z-index: 11;
+  max-width: calc(100vw - 16px);
+  max-height: calc(100vh - 150px);
+  overflow-y: auto;
+  padding: 10px;
+  border-radius: 24px;
+  background: var(--glass-strong);
+  -webkit-backdrop-filter: blur(28px) saturate(1.8);
+  backdrop-filter: blur(28px) saturate(1.8);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--menu-shadow);
+}
+
+.textbar-pop[data-kind='color'],
+.textbar-pop[data-kind='highlight'] {
+  width: 340px;
+}
+
+.tp-list {
+  display: grid;
+  width: 230px;
+}
+
+.tp-item {
+  padding: 11px 16px;
+  border: none;
+  border-radius: 14px;
+  background: transparent;
+  color: var(--text);
+  font-size: 20px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.tp-item.on,
+.tp-size.on {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.tp-sizes {
+  display: grid;
+  grid-template-columns: repeat(6, 46px);
+  gap: 4px;
+}
+
+.tp-size {
+  height: 42px;
+  border: none;
+  border-radius: 12px;
+  background: var(--chip);
+  color: var(--text);
+  font: inherit;
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+
+.tp-title {
+  margin: 2px 6px 8px;
+  font-weight: 650;
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.tp-colors {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 8px 4px;
+  justify-items: center;
+}
+
+.tp-rainbow,
+.tp-none {
+  position: relative;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.tp-none svg {
+  width: 32px;
+  height: 32px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+}
+
+.tp-none.on {
+  color: var(--accent);
+}
+
+.textbar-pop .picker {
+  margin-top: 10px;
+}
+
+/* ---------- Textfeld, das gerade bearbeitet wird ---------- */
+.tbox {
+  position: absolute;
+  z-index: 2;
+}
+
+.tbox-edit {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform-origin: 0 0;
+  min-height: 1em;
+  outline: none;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  word-break: normal;
+  -webkit-user-select: text;
+  user-select: text;
+  -webkit-touch-callout: default;
+  caret-color: var(--accent);
+  cursor: text;
+}
+
+.tbox-edit div,
+.tbox-edit li {
+  min-height: 0;
+}
+
+.tbox-edit ul,
+.tbox-edit ol {
+  margin: 0;
+  padding-left: var(--indent);
+}
+
+.tbox-edit ::selection {
+  background: rgba(74, 108, 247, 0.3);
+}
+
+/* Gestrichelter Rahmen um das Textfeld (bleibt beim Zoomen gleich dünn) */
+.tbox-frame {
+  position: absolute;
+  inset: -8px -10px;
+  border: 1.5px dashed var(--accent);
+  border-radius: 8px;
+  pointer-events: none;
+}
+
+.tbox-move,
+.tbox-size {
+  position: absolute;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: none;
+  cursor: grab;
+  touch-action: none;
+}
+
+/* Griff links oben: verschieben */
+.tbox-move {
+  left: -26px;
+  top: -40px;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #fff;
+  box-shadow: 0 2px 8px rgba(30, 40, 90, 0.3);
+}
+
+.tbox-move svg {
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* Griff rechts: Breite ändern */
+.tbox-size {
+  right: -26px;
+  top: 50%;
+  width: 32px;
+  height: 44px;
+  margin-top: -22px;
+  background: none;
+  cursor: ew-resize;
+}
+
+.tbox-size i {
+  width: 8px;
+  height: 30px;
+  border-radius: 4px;
+  background: var(--accent);
+  box-shadow: 0 0 0 2px var(--bar), 0 2px 6px rgba(30, 40, 90, 0.3);
+}
+
+/* Text hat kein Einstellungs-Popup -> kein Pfeil */
+.tool-btn[data-tool='text'].active::before {
+  display: none;
+}
