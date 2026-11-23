@@ -1190,3 +1190,462 @@ body {
   font-size: 11.5px;
   padding: 2px 10px;
 }
+
+/* =========================================================
+   Etappe 3: Seiten – Vorlagen-Menü, "+ Seite", Übersicht
+   ========================================================= */
+
+.pages-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px 8px 10px;
+}
+
+.pages-btn svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+}
+
+.pages-btn.active {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+/* Hochkant ist die Leiste schmal: Zoom-Knopf weglassen (Zoomen geht mit zwei Fingern) */
+@media (max-width: 900px) {
+  .zoom-btn {
+    display: none;
+  }
+}
+
+/* ---------- Vorlagen-Menü ---------- */
+.page-popup {
+  width: 430px;
+}
+
+.page-popup .popup-head {
+  grid-template-columns: 40px 1fr 40px;
+}
+
+.tpl-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 10px 4px;
+  margin: 6px 0 4px;
+}
+
+.tpl {
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 550;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.tpl-thumb {
+  position: relative;
+  display: block;
+  width: 60px;
+  aspect-ratio: 1000 / 1414;
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 0 0 1px var(--line), 0 2px 6px rgba(20, 30, 60, 0.08);
+  transition: transform 0.15s, box-shadow 0.15s;
+}
+
+.tpl-thumb canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.tpl:active .tpl-thumb {
+  transform: scale(0.94);
+}
+
+.tpl.selected {
+  color: var(--accent);
+}
+
+.tpl.selected .tpl-thumb {
+  box-shadow: 0 0 0 2px var(--glass-strong), 0 0 0 4px var(--accent), 0 4px 12px rgba(74, 108, 247, 0.25);
+}
+
+.sect {
+  margin-top: 12px;
+  transition: opacity 0.2s;
+}
+
+.sect.off {
+  opacity: 0.35;
+  pointer-events: none;
+}
+
+.sect-label {
+  margin: 0 4px 6px;
+  font-size: 12px;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+  color: var(--muted);
+}
+
+.tabs.three {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.paper-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 0 4px;
+}
+
+.paper-btn {
+  position: relative;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: none;
+  box-shadow: inset 0 0 0 1px rgba(20, 30, 60, 0.18);
+  cursor: pointer;
+  transition: transform 0.15s;
+}
+
+.paper-btn canvas.paint {
+  border-radius: 50%;
+}
+
+.paper-btn:active {
+  transform: scale(0.9);
+}
+
+.paper-btn.selected {
+  box-shadow: 0 0 0 2px var(--glass-strong), 0 0 0 4px var(--accent);
+}
+
+.page-popup .switch-row {
+  margin-top: 8px;
+}
+
+/* ---------- "+ Seite hinzufügen" unter der letzten Seite ---------- */
+.add-page-end {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 22px 12px 18px;
+  border: 1.5px dashed color-mix(in srgb, var(--accent) 55%, transparent);
+  border-radius: 999px;
+  background: var(--glass);
+  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(16px);
+  color: var(--accent);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 650;
+  white-space: nowrap;
+  cursor: pointer;
+  will-change: transform;
+}
+
+.add-page-end svg {
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.2;
+  stroke-linecap: round;
+}
+
+.add-page-end:active {
+  background: var(--accent-soft);
+}
+
+/* ---------- "Seite 2 von 5" ---------- */
+.page-indicator {
+  position: absolute;
+  left: 50%;
+  bottom: 22px;
+  z-index: 3;
+  padding: 8px 16px;
+  border-radius: 999px;
+  background: rgba(24, 28, 38, 0.82);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+  color: #fff;
+  font-size: 13.5px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+  opacity: 0;
+  transform: translate(-50%, 8px);
+  transition: opacity 0.25s, transform 0.25s;
+}
+
+.page-indicator.show {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+
+/* ---------- Seitenübersicht ---------- */
+.overview {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  background: color-mix(in srgb, var(--bg) 96%, transparent);
+  -webkit-backdrop-filter: blur(24px) saturate(1.5);
+  backdrop-filter: blur(24px) saturate(1.5);
+  animation: ov-in 0.25s cubic-bezier(0.2, 0.9, 0.3, 1);
+}
+
+@keyframes ov-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+}
+
+.ov-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 16px 20px 8px 24px;
+}
+
+.ov-title {
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--text);
+}
+
+.ov-count {
+  flex: 1;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.ov-head .head-btn {
+  background: var(--chip);
+}
+
+.ov-grid {
+  flex: 1;
+  overflow-y: auto;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  align-content: start;
+  gap: 22px 18px;
+  padding: 12px 24px 24px;
+  touch-action: pan-y;
+  scrollbar-width: thin;
+}
+
+.ov-card {
+  display: grid;
+  gap: 8px;
+  cursor: pointer;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.ov-thumb {
+  position: relative;
+  aspect-ratio: 1000 / 1414;
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: 0 1px 2px rgba(20, 30, 60, 0.08), 0 6px 18px rgba(20, 30, 60, 0.12);
+  transition: transform 0.18s, box-shadow 0.18s;
+}
+
+.ov-thumb canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.ov-card:active .ov-thumb {
+  transform: scale(0.97);
+}
+
+.ov-card.current .ov-thumb {
+  box-shadow: 0 0 0 2.5px var(--accent), 0 6px 18px rgba(74, 108, 247, 0.28);
+}
+
+.ov-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 2px 0 6px;
+}
+
+.ov-num {
+  font-size: 13.5px;
+  font-weight: 650;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.ov-card.current .ov-num {
+  color: var(--accent);
+}
+
+.ov-more {
+  width: 34px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border: none;
+  border-radius: 10px;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.ov-more:active {
+  background: var(--chip);
+}
+
+.ov-more svg {
+  width: 20px;
+  height: 20px;
+  fill: currentColor;
+}
+
+.ov-add {
+  aspect-ratio: 1000 / 1414;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 10px;
+  border: 2px dashed color-mix(in srgb, var(--accent) 45%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--accent) 5%, transparent);
+  color: var(--accent);
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.ov-add span {
+  width: 46px;
+  height: 46px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--accent-soft);
+}
+
+.ov-add svg {
+  width: 24px;
+  height: 24px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.2;
+  stroke-linecap: round;
+}
+
+.ov-hint {
+  padding: 10px 24px 16px;
+  text-align: center;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+/* Beim Ziehen: Platzhalter an der Zielstelle, Geisterkarte folgt dem Finger */
+.ov-placeholder .ov-thumb {
+  box-shadow: none;
+  outline: 2px dashed var(--accent);
+  outline-offset: -2px;
+}
+
+.ov-placeholder .ov-thumb canvas,
+.ov-placeholder .ov-foot {
+  opacity: 0.25;
+}
+
+.ov-ghost {
+  position: fixed;
+  z-index: 50;
+  pointer-events: none;
+  transform: scale(1.06) rotate(-2deg);
+  filter: drop-shadow(0 18px 30px rgba(20, 30, 60, 0.3));
+  transition: transform 0.15s;
+}
+
+/* "…"-Menü einer Seite */
+.ov-menu {
+  position: absolute;
+  z-index: 6;
+  min-width: 230px;
+  padding: 6px;
+  border-radius: 20px;
+  background: var(--glass-strong);
+  -webkit-backdrop-filter: blur(28px) saturate(1.8);
+  backdrop-filter: blur(28px) saturate(1.8);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--menu-shadow);
+  animation: pop 0.18s cubic-bezier(0.2, 0.9, 0.3, 1.2);
+}
+
+.ov-menu button {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 12px;
+  border: none;
+  border-radius: 14px;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 14.5px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ov-menu button:active {
+  background: var(--chip);
+}
+
+.ov-menu button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.ov-menu svg {
+  width: 21px;
+  height: 21px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.ov-menu .danger {
+  color: #e03131;
+}
+
+.ov-menu .danger.armed {
+  background: #e03131;
+  color: #fff;
+}

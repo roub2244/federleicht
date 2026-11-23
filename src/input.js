@@ -310,6 +310,9 @@ export function setupInput(canvas, app) {
 
   // ---------- Finger ----------
   const eraserTouches = new Set(); // "Finger", die in Wahrheit der Stift im Radier-Modus sind
+  // Für den Schwung beim Loslassen: die letzten Positionen eines einzelnen Fingers
+  let flingSamples = [];
+  let multiTouch = false; // waren in dieser Geste schon mal zwei Finger da? (dann kein Schwung)
 
   function handleTouch(e) {
     const id = e.pointerId;
@@ -357,6 +360,10 @@ export function setupInput(canvas, app) {
       }
       capture(id);
       touches.set(id, screenPos(e));
+      if (touches.size === 1) {
+        multiTouch = false;
+        flingSamples = [];
+      } else multiTouch = true;
       return 'Finger';
     }
 
@@ -368,6 +375,18 @@ export function setupInput(canvas, app) {
 
     if (ended) {
       touches.delete(id);
+      // Letzter Finger losgelassen: Wie schnell war er zuletzt? -> mit Schwung weiterrollen
+      if (touches.size === 0 && !multiTouch && e.type === 'pointerup') {
+        const recent = flingSamples.filter((s) => e.timeStamp - s.t < 90);
+        if (recent.length >= 2 && e.timeStamp - recent[recent.length - 1].t < 50) {
+          const a = recent[0];
+          const b = recent[recent.length - 1];
+          const dt = Math.max(1, b.t - a.t);
+          const vx = (b.x - a.x) / dt;
+          const vy = (b.y - a.y) / dt;
+          if (Math.hypot(vx, vy) > 0.25) app.fling(vx, vy);
+        }
+      }
       return 'Finger';
     }
 
@@ -375,6 +394,10 @@ export function setupInput(canvas, app) {
     const before = gesture(touches);
     touches.set(id, screenPos(e));
     const after = gesture(touches);
+    if (touches.size === 1) {
+      flingSamples.push({ t: e.timeStamp, x: after.cx, y: after.cy });
+      if (flingSamples.length > 8) flingSamples.shift();
+    }
 
     app.panBy(after.cx - before.cx, after.cy - before.cy); // Mitte bewegt -> verschieben
     if (before.dist > 0 && after.dist > 0) {
@@ -385,6 +408,8 @@ export function setupInput(canvas, app) {
 
   // ---------- Events anmelden ----------
   function onPointerEvent(e) {
+    // Jede neue Berührung hält das Weiterrollen an (wie beim Handy)
+    if (e.type === 'pointerdown') app.stopFling();
     const status = e.pointerType === 'touch' ? handleTouch(e) : handlePen(e);
     app.debug.record(e, status);
   }
@@ -418,6 +443,7 @@ export function setupInput(canvas, app) {
     (e) => {
       e.preventDefault();
       const [x, y] = screenPos(e);
+      app.stopFling();
       if (e.ctrlKey) app.zoomAt(x, y, Math.exp(-e.deltaY * 0.01));
       else app.panBy(-e.deltaX, -e.deltaY);
     },

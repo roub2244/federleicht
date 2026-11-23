@@ -1,8 +1,9 @@
-# Federleicht – Etappe 2
+# Federleicht – Etappe 3
 
 Deine eigene Notiz-App für das Galaxy Tab S10 FE mit S Pen.
 Etappe 1: **installierbare Offline-App + Zeichenfläche**, auf der du flüssig mit dem Stift schreibst.
 Etappe 2: **Werkzeugleiste** wie bei Samsung Notes: Stift, Textmarker, Radierer, Rückgängig und Wiederholen.
+Etappe 3: **Seitenvorlagen und mehrere Seiten** pro Notiz, dazu ein **dunkles Blatt** im Dunkelmodus.
 
 Was schon geht:
 
@@ -26,7 +27,17 @@ Was schon geht:
 - **Rückgängig / Wiederholen** (Pfeile oben links, am PC auch Strg+Z / Strg+Y). Auch „Seite leeren“ kann man rückgängig machen.
 - **Gerade Linien:** Strich ziehen und den Stift am Ende kurz stillhalten (etwa eine halbe Sekunde).
   Dann wird daraus eine gerade Strecke vom Anfang bis zum Ende. Solange die Spitze unten bleibt, kannst du das Ende noch verschieben.
-- **1 Finger** verschiebt die Seite, **2 Finger** zoomen
+- **Mehrere Seiten:** Sie liegen untereinander, mit einem Finger scrollen (mit Schwung). Neue Seite über das **Blatt mit +** oben
+  oder den Knopf **„Seite hinzufügen“** unter der letzten Seite. Beim Scrollen zeigt eine Pille „Seite 2 von 5“.
+- **Seitenvorlagen** (Knopf mit dem linierten Blatt oben): Leer, Liniert, Collegeblock, Kariert (wie Samsung Notes), Mathe-Heft
+  (Karos mit Rand), Gepunktet, Millimeterpapier, Cornell-Notizen, Notenlinien. Dazu **Linienabstand** (eng/mittel/weit),
+  **Papierfarbe** (Weiß, Creme, Grau, Blau, Grün, Rosa) und „Diese Seite“ oder „Alle Seiten“. Neue Seiten übernehmen die Vorlage der Seite davor.
+- **Dunkles Blatt:** Ist das Tablet im Dunkelmodus, wird das Blatt dunkel, Schwarz wird hell angezeigt (und Weiß dunkel),
+  der Textmarker leuchtet auf dem dunklen Papier. Schalter dafür im Vorlagen-Menü. Die Farben selbst bleiben gespeichert, wie du sie gewählt hast.
+- **Seitenübersicht** (Knopf mit den vier Kästchen, zeigt „2 / 5“): alle Seiten als kleine Bilder. Antippen springt hin,
+  **lange drücken und ziehen** sortiert um, „…“ = Seite davor/danach einfügen, duplizieren, Vorlage ändern, löschen.
+  Alles davon kann man **rückgängig** machen.
+- **1 Finger** verschiebt die Seite, **2 Finger** zoomen (so weit raus, dass man mehrere Seiten sieht)
 - **Handballen** werden ignoriert, solange der Stift in der Nähe ist
 - **Stift-Diagnose** (Knopf mit der Zickzack-Linie oben rechts): zeigt, was der Stift an die App meldet
 - **Offline**: Nach dem ersten Öffnen läuft die App ohne Internet
@@ -77,7 +88,10 @@ npm run preview    # zeigt die fertige Version an (mit Service Worker)
 | `src/pens.js` | Die gezeichneten Stift-Bilder (SVG) für Popup und Schnellmenü |
 | `src/colorpicker.js` | Farbraster und Spektrum (Farbton-Balken + Farbfeld, HEX-Eingabe) |
 | `src/wheel.js` | Das Schnellmenü-Rad |
-| `src/history.js` | Rückgängig und Wiederholen mit zwei Stapeln |
+| `src/history.js` | Rückgängig und Wiederholen mit zwei Stapeln (Striche, Seiten und Vorlagen) |
+| `src/document.js` | Die Notiz: Liste der Seiten, jede mit Vorlage und eigenen Strichen, und wo welche Seite liegt |
+| `src/templates.js` | Die Seitenvorlagen: malt Linien, Karos, Punkte … frisch und scharf, nur den sichtbaren Teil. Papierfarben |
+| `src/pages.js` | Vorlagen-Menü, „Seite hinzufügen“, Seitenanzeige und die Seitenübersicht mit Ziehen zum Umsortieren |
 | `src/input.js` | **Das Herz für den S Pen.** Unterscheidet Stift, Finger und Handballen und erkennt den Stiftknopf |
 | `src/ink.js` | Macht aus Stiftpunkten mit perfect-freehand eine glatte Linie (je Stiftart andere Einstellungen). Prüft, ob der Radierer trifft, und schneidet beim Bereichs-Radierer Löcher in Striche |
 | `src/straighten.js` | Gerade Linien: erkennt mit einem Timer, ob der Stift stillsteht, und macht aus dem Strich eine Strecke |
