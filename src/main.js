@@ -11,6 +11,7 @@ import { setupInput } from './input.js';
 import { Debug } from './debug.js';
 import { HoldDetector, linePoints, averagePressure, longEnough } from './straighten.js';
 import { History } from './history.js';
+import { LiftTracker } from './lift.js';
 import { loadTools, saveTools, activeStyle, settingsOf } from './tools.js';
 import { setupToolbar } from './toolbar.js';
 import { setupWheel } from './wheel.js';
@@ -53,6 +54,11 @@ const history = new History(() => {
 // Stift steht am Ende eines Strichs still -> Strich wird zur geraden Linie
 const hold = new HoldDetector(straightenCurrentStroke);
 
+// Erkennt, wann der Stift beim Absetzen nur noch ganz leicht aufliegt (siehe lift.js)
+const lift = new LiftTracker();
+let liftedPointer = null; // nach erkanntem Abheben: Stift liegt noch leicht auf ('pen'), sonst null
+const MIN_INK_PRESSURE = 0.04;
+
 // ---------- Was die App tun kann ----------
 // input.js ruft diese Funktionen auf, je nachdem was Stift und Finger machen.
 const app = {
@@ -60,31 +66,30 @@ const app = {
   debug,
 
   startStroke(point, pointerType) {
-    // Die Einstellungen des aktuellen Stifts (beim Radierer: der Stift davor)
-    const style = activeStyle(tools);
+    liftedPointer = null;
     // Der Strich gehört zu der Seite, auf der er anfängt (in der Lücke: die nähere)
     const index = doc.indexAt(point[1]);
     currentPage = doc.pages[index];
     currentTop = doc.top(index);
-    current = createStroke({
-      tool: style.type === 'highlighter' ? 'highlighter' : 'pen',
-      penType: style.type,
-      color: style.color,
-      size: style.size,
-      opacity: style.opacity,
-      simulatePressure: pointerType !== 'pen',
-      z: nextZ++,
-    });
-    point = toLocal(point);
-    current.points.push(point);
-    if (tools.straighten) hold.moved(point, view.scale);
-    drawCurrentStroke([]);
+    beginStroke(toLocal(point), pointerType);
   },
 
   extendStroke(points, predicted) {
-    if (!current || points.length === 0) return;
+    if (points.length === 0) return;
     points = points.map(toLocal);
     predicted = predicted.map(toLocal);
+
+    // Nach einem erkannten Abheben: erst wieder richtig aufdrücken, dann neuer Strich
+    if (!current) {
+      if (!liftedPointer) return;
+      const first = points.findIndex((p) => lift.isRetouch(p[2]));
+      if (first < 0) return;
+      debug.addLine('Wieder aufgedrückt → neuer Strich');
+      beginStroke(points[first], liftedPointer);
+      liftedPointer = null;
+      points = points.slice(first + 1);
+      if (points.length === 0) return drawCurrentStroke(predicted);
+    }
     const last = points[points.length - 1];
 
     // Schon begradigt? Dann folgt nur noch das Ende der Linie dem Stift.
@@ -94,25 +99,40 @@ const app = {
       return;
     }
 
-    current.points.push(...points);
+    if (current.simulatePressure) {
+      current.points.push(...points);
+    } else {
+      // Echter Stift: jeden Punkt auf "eigentlich schon abgehoben" prüfen (siehe lift.js)
+      for (let k = 0; k < points.length; k++) {
+        const p = points[k];
+        current.points.push(inkPoint(p));
+        const verdict = lift.add(p, current.points.length - 1, view.scale);
+        if (verdict?.trimStart) {
+          current.points.splice(0, verdict.trimStart);
+        } else if (verdict?.cut !== undefined) {
+          // Stift ist abgesetzt, liegt aber noch leicht auf: Strich hier beenden
+          current.points.length = Math.max(1, verdict.cut);
+          debug.addLine(`Abheben erkannt (Druck ${p[2].toFixed(3)}) → Strich beendet`);
+          finishCurrentStroke();
+          liftedPointer = 'pen';
+          // Falls in denselben Punkten schon wieder aufgedrückt wurde: gleich weitermachen
+          const rest = points.slice(k + 1);
+          if (rest.length) app.extendStroke(rest.map(toDoc), []);
+          return;
+        }
+      }
+    }
     if (tools.straighten) hold.moved(last, view.scale);
     drawCurrentStroke(predicted);
   },
 
   endStroke() {
-    hold.stop();
-    if (!current) return;
-    finishStroke(current);
-    if (current.box && doc.pages.includes(currentPage)) {
-      currentPage.strokes.push(current); // hat das höchste z, gehört also ans Ende
-      renderer.commitStroke(current, doc.pages.indexOf(currentPage));
-      history.push({ strokes: [{ page: currentPage, added: [current], removed: [] }] });
-      pages.strokesChanged();
-      markDirty([currentPage]);
-    } else {
-      renderer.setOverlay(null);
+    liftedPointer = null;
+    if (current && !current.simulatePressure && !current.straight) {
+      // Leichte Punkte ganz am Ende (beim Abheben) weglassen -> kein Haken
+      current.points.length = Math.max(1, lift.keepAtEnd(current.points.length));
     }
-    current = null;
+    finishCurrentStroke();
   },
 
   startErase(point) {
@@ -209,6 +229,49 @@ const app = {
   },
 };
 
+// Einen neuen Strich anfangen (point in Seiten-Koordinaten der Seite, auf der er beginnt)
+function beginStroke(point, pointerType) {
+  // Die Einstellungen des aktuellen Stifts (beim Radierer: der Stift davor)
+  const style = activeStyle(tools);
+  current = createStroke({
+    tool: style.type === 'highlighter' ? 'highlighter' : 'pen',
+    penType: style.type,
+    color: style.color,
+    size: style.size,
+    opacity: style.opacity,
+    simulatePressure: pointerType !== 'pen',
+    z: nextZ++,
+  });
+  lift.reset();
+  current.points.push(inkPoint(point));
+  if (!current.simulatePressure) lift.add(point, 0, view.scale);
+  if (tools.straighten) hold.moved(point, view.scale);
+  drawCurrentStroke([]);
+}
+
+// Den laufenden Strich abschließen und auf die Seite legen
+function finishCurrentStroke() {
+  hold.stop();
+  if (!current) return;
+  if (!current.simulatePressure) lift.learn();
+  finishStroke(current);
+  if (current.box && doc.pages.includes(currentPage)) {
+    currentPage.strokes.push(current); // hat das höchste z, gehört also ans Ende
+    renderer.commitStroke(current, doc.pages.indexOf(currentPage));
+    history.push({ strokes: [{ page: currentPage, added: [current], removed: [] }] });
+    pages.strokesChanged();
+    markDirty([currentPage]);
+  } else {
+    renderer.setOverlay(null);
+  }
+  current = null;
+}
+
+// Punkt so speichern, wie er gezeichnet wird: ganz ohne Druck wäre er unsichtbar dünn
+function inkPoint(p) {
+  return [p[0], p[1], Math.max(MIN_INK_PRESSURE, p[2])];
+}
+
 // Den Strich, der gerade entsteht, sofort anzeigen
 function drawCurrentStroke(predicted) {
   const built = buildPath(current, predicted, false);
@@ -230,6 +293,9 @@ function drawCurrentStroke(predicted) {
 // Dokument-Punkt -> Punkt auf der aktuellen Seite
 function toLocal(p) {
   return [p[0], p[1] - currentTop, p[2]];
+}
+function toDoc(p) {
+  return [p[0], p[1] + currentTop, p[2]];
 }
 
 // Wird vom HoldDetector aufgerufen, wenn der Stift lange genug stillstand

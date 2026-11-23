@@ -26,8 +26,8 @@ export const PEN_STYLES = {
     layers: [{ scale: 1, alpha: 1 }],
   },
   fountain: {
-    thinning: 0.86, smoothing: 0.6, streamline: 0.35, cap: true, curve: 1.15,
-    nib: true, taperStart: 2.2, taperEnd: 3.2,
+    thinning: 0.8, smoothing: 0.6, streamline: 0.4, cap: true,
+    nib: true, taperStart: 1.2, taperEnd: 2.2, smoothPressure: 3,
     layers: [{ scale: 1, alpha: 1 }],
   },
   felt: {
@@ -36,7 +36,7 @@ export const PEN_STYLES = {
   },
   brush: {
     thinning: 0.95, smoothing: 0.75, streamline: 0.4, cap: true, curve: 1.7,
-    taperStart: 4, taperEnd: 6,
+    taperStart: 4, taperEnd: 6, smoothPressure: 2,
     layers: [{ scale: 1, alpha: 0.3 }, { scale: 0.72, alpha: 0.95 }],
   },
   highlighter: {
@@ -71,22 +71,66 @@ export function createStroke({ tool = 'pen', penType = 'ballpoint', color, size,
 // Schräge Feder: Der Druck wird je nach Schreibrichtung etwas kleiner oder größer.
 // Bewegst du den Stift quer zur Feder, ist der Strich breit, entlang der Feder schmal.
 // Die Richtung messen wir über ein paar Punkte hinweg, damit sie nicht zittert.
+//
+// Wichtig für ein sauberes Schriftbild: Der Füller wird NIE haarfein.
+//   - Mindest-Druck NIB_FLOOR: auch ganz leichtes Schreiben gibt eine klare Linie
+//   - Die Feder macht Querstriche höchstens auf NIB_MIN schmaler (nicht fast unsichtbar)
+const NIB_FLOOR = 0.25;
+const NIB_MIN = 0.55;
 function applyNib(points, fixedPressure) {
   const n = points.length;
   const out = new Array(n);
-  let factor = 0.75;
+  let factor = 0.8;
   for (let i = 0; i < n; i++) {
     const a = points[Math.max(0, i - 2)];
     const b = points[Math.min(n - 1, i + 2)];
     const dx = b[0] - a[0];
     const dy = b[1] - a[1];
     if (dx * dx + dy * dy > 0.25) {
-      factor = 0.3 + 0.7 * Math.abs(Math.sin(Math.atan2(dy, dx) - NIB_ANGLE));
+      const target = NIB_MIN + (1 - NIB_MIN) * Math.abs(Math.sin(Math.atan2(dy, dx) - NIB_ANGLE));
+      factor += (target - factor) * 0.6; // weich überblenden, kein Springen in Kurven
     }
     const pressure = fixedPressure ?? points[i][2] ?? 0.5;
-    out[i] = [points[i][0], points[i][1], Math.min(1, pressure * factor * 1.5)];
+    const firm = NIB_FLOOR + (1 - NIB_FLOOR) * Math.min(1, pressure * 1.2);
+    out[i] = [points[i][0], points[i][1], firm * factor];
   }
   return out;
+}
+
+// Druck leicht glätten (gleitender Durchschnitt über "radius" Nachbarn auf jeder Seite).
+// Der Stift misst den Druck sehr genau – auch das Zittern. Ungeglättet "pumpt" die Linie.
+function smoothPressure(points, radius) {
+  const n = points.length;
+  if (n < 3) return points;
+  const out = new Array(n);
+  for (let i = 0; i < n; i++) {
+    let sum = 0;
+    let count = 0;
+    for (let k = Math.max(0, i - radius); k <= Math.min(n - 1, i + radius); k++) {
+      sum += points[k][2];
+      count++;
+    }
+    out[i] = [points[i][0], points[i][1], sum / count];
+  }
+  return out;
+}
+
+// Gesamtlänge eines Strichs
+function pathLength(points) {
+  let length = 0;
+  for (let i = 1; i < points.length; i++) {
+    length += Math.hypot(points[i][0] - points[i - 1][0], points[i][1] - points[i - 1][1]);
+  }
+  return length;
+}
+
+// Spitze Enden: höchstens ein Teil der Strichlänge. Sonst bestünden kurze Striche
+// (i-Punkte, kleine Buchstaben) nur aus Spitze und wären fast unsichtbar – "Lücken".
+function taperLength(factor, size, length, share) {
+  // Ganz kurze Striche (Punkte, Kommas) bekommen gar keine Spitze, sondern runde Enden.
+  // (Mit Spitze wäre JEDER Punkt des Strichs "Spitze" – und damit unsichtbar dünn.)
+  if (!factor || length < size * 5) return 0;
+  return Math.min(factor * size, length * share);
 }
 
 // Aus den Punkten die Umrisse berechnen.
@@ -96,11 +140,13 @@ export function buildPath(stroke, extraPoints = [], finished = false) {
   const style = styleOf(stroke);
   let points = extraPoints.length ? stroke.points.concat(extraPoints) : stroke.points;
   let simulate = stroke.simulatePressure && style.thinning > 0;
+  if (style.smoothPressure && !stroke.simulatePressure) points = smoothPressure(points, style.smoothPressure);
   if (style.nib) {
     points = applyNib(points, stroke.simulatePressure ? 0.5 : undefined);
     simulate = false; // der Füller rechnet den Druck selbst aus
   }
   const curve = style.curve || 1;
+  const length = style.taperStart || style.taperEnd ? pathLength(points) : 0;
 
   const layers = [];
   let box = null;
@@ -113,9 +159,9 @@ export function buildPath(stroke, extraPoints = [], finished = false) {
       streamline: style.streamline,
       easing: (p) => Math.pow(p, curve),
       simulatePressure: simulate,
-      start: { cap: style.cap, taper: style.taperStart ? style.taperStart * size : 0 },
+      start: { cap: style.cap, taper: taperLength(style.taperStart, size, length, 0.2) },
       // Die Spitze am Ende erst beim Abheben – sonst "zuckt" das Ende beim Schreiben
-      end: { cap: style.cap, taper: finished && style.taperEnd ? style.taperEnd * size : 0 },
+      end: { cap: style.cap, taper: finished ? taperLength(style.taperEnd, size, length, 0.25) : 0 },
       last: finished,
     });
     const shape = outlineToPath(outline);
