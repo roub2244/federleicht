@@ -16,6 +16,7 @@ import { getStroke } from 'perfect-freehand';
 import { drawText, transformText, recolorText } from './text.js';
 import { apply as applyMatrix, scaleOf } from './geometry.js';
 import { drawImageItem, transformImage } from './media.js';
+import { thinPoints } from './steady.js';
 
 // thinning:   wie stark der Druck die Dicke ändert (0 = gar nicht, 1 = sehr stark)
 // smoothing:  wie rund der Umriss wird
@@ -144,7 +145,9 @@ function taperLength(factor, size, length, share) {
 // finished: true, wenn der Stift wieder abgehoben wurde
 export function buildPath(stroke, extraPoints = [], finished = false) {
   const style = styleOf(stroke);
-  let points = extraPoints.length ? stroke.points.concat(extraPoints) : stroke.points;
+  // Viel zu dicht liegende Punkte zusammenfassen (sonst wackelt langsam Geschriebenes, siehe steady.js)
+  let points = stroke.shape ? stroke.points : thinPoints(stroke.points, Math.max(0.5, stroke.size * 0.12));
+  if (extraPoints.length) points = points.concat(extraPoints);
   let simulate = stroke.simulatePressure && style.thinning > 0;
   if (style.smoothPressure && !stroke.simulatePressure) points = smoothPressure(points, style.smoothPressure);
   if (style.nib) {

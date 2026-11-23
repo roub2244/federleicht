@@ -12,6 +12,7 @@ import { Debug } from './debug.js';
 import { HoldDetector, averagePressure, longEnough } from './straighten.js';
 import { History } from './history.js';
 import { LiftTracker } from './lift.js';
+import { Steadier } from './steady.js';
 import { setupTextEditor } from './texteditor.js';
 import { loadFonts, onFontsChanged, updateTextBox } from './text.js';
 import { loadTools, saveTools, activeStyle, settingsOf } from './tools.js';
@@ -71,6 +72,8 @@ const hold = new HoldDetector(straightenCurrentStroke);
 const lift = new LiftTracker();
 let liftedPointer = null; // nach erkanntem Abheben: Stift liegt noch leicht auf ('pen'), sonst null
 const MIN_INK_PRESSURE = 0.04;
+// Glättet langsame Bewegungen, damit die Linie nicht zittert (siehe steady.js)
+const steady = new Steadier();
 
 // ---------- Was die App tun kann ----------
 // input.js ruft diese Funktionen auf, je nachdem was Stift und Finger machen.
@@ -126,11 +129,15 @@ const app = {
     }
 
     if (current.simulatePressure) {
-      current.points.push(...points);
+      for (const raw of points) {
+        const p = steady.add(raw, view.scale);
+        if (p) current.points.push(p);
+      }
     } else {
       // Echter Stift: jeden Punkt auf "eigentlich schon abgehoben" prüfen (siehe lift.js)
       for (let k = 0; k < points.length; k++) {
-        const p = points[k];
+        const p = steady.add(points[k], view.scale);
+        if (!p) continue; // noch zu nah am letzten Punkt (langsames Schreiben)
         current.points.push(inkPoint(p));
         const verdict = lift.add(p, current.points.length - 1, view.scale);
         if (verdict?.trimStart) {
@@ -149,7 +156,7 @@ const app = {
       }
     }
     if (tools.straighten) hold.moved(last, view.scale);
-    drawCurrentStroke(predicted);
+    drawCurrentStroke(steady.predicted(predicted, view.scale));
   },
 
   endStroke() {
@@ -160,6 +167,17 @@ const app = {
     }
     if (tools.tool === 'lasso') return lasso.penUp();
     if (shapeDrag) return finishShapeDrag();
+    if (current && !current.straight) {
+      // Der Strich endet genau dort, wo der Stift war (die Glättung hängt minimal hinterher)
+      const end = steady.finish(view.scale);
+      if (end) {
+        if (current.simulatePressure) current.points.push(end);
+        else {
+          current.points.push(inkPoint(end));
+          lift.add(end, current.points.length - 1, view.scale);
+        }
+      }
+    }
     if (current && !current.simulatePressure && !current.straight) {
       // Leichte Punkte ganz am Ende (beim Abheben) weglassen -> kein Haken
       current.points.length = Math.max(1, lift.keepAtEnd(current.points.length));
@@ -311,6 +329,7 @@ function beginStroke(point, pointerType) {
     z: nextZ++,
   });
   lift.reset();
+  steady.reset(point);
   current.points.push(inkPoint(point));
   if (!current.simulatePressure) lift.add(point, 0, view.scale);
   if (tools.straighten) hold.moved(point, view.scale);
