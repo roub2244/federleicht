@@ -13,8 +13,10 @@
 //   data-paint="field"    Feld für Sättigung/Helligkeit, data-hue = Farbton
 //   data-paint="checker"  Schachbrett, darüber Verlauf zu data-c (Deckkraft-Regler)
 //   data-paint="check"    Farbe data-c mit Häkchen (ausgewählte Farbe)
+//   data-paint="badge"    Ordner-Symbol: farbiges Quadrat (data-c) mit weißem Symbol (data-icon)
 
 import { isLight } from './pens.js';
+import { iconPaths, isCustomIcon } from './foldericons.js';
 
 export function paint(color = '', kind = '', extra = '') {
   const c = color ? ` data-c="${color}"` : '';
@@ -28,6 +30,7 @@ function sizeOf(canvas, kind) {
   if (kind === 'hue') return [360, 1];
   if (kind === 'field') return [128, 128];
   if (kind === 'check') return [64, 64];
+  if (kind === 'badge') return [96, 96];
   if (kind === 'checker') {
     const dpr = window.devicePixelRatio || 1;
     return [Math.round((canvas.clientWidth || 240) * dpr), Math.round((canvas.clientHeight || 34) * dpr)];
@@ -44,6 +47,10 @@ export function draw(canvas) {
   const ctx = canvas.getContext('2d');
   ctx.clearRect(0, 0, w, h);
 
+  if (kind === 'badge') {
+    drawBadge(ctx, w, color || '#4a6cf7', canvas.dataset.icon || 'folder');
+    return;
+  }
   if (kind === 'rainbow') {
     const g = ctx.createConicGradient(-Math.PI / 2, w / 2, h / 2);
     ['#ff4d4d', '#ffb31a', '#ffe14d', '#4dd964', '#4dc3ff', '#5a6bff', '#c04dff', '#ff4d4d'].forEach((c, i, a) =>
@@ -130,6 +137,48 @@ observer.observe(document.documentElement, {
   subtree: true,
   childList: true,
   attributes: true,
-  attributeFilter: ['data-c', 'data-hue'],
+  attributeFilter: ['data-c', 'data-hue', 'data-icon'],
 });
 for (const c of document.querySelectorAll('canvas.paint')) draw(c);
+
+// Ordner-Symbol: abgerundetes Quadrat mit sanftem Verlauf, darauf das Symbol in Weiß
+function drawBadge(ctx, size, color, icon) {
+  const r = size * 0.28;
+  ctx.beginPath();
+  ctx.roundRect(0, 0, size, size, r);
+  const g = ctx.createLinearGradient(0, 0, size, size);
+  g.addColorStop(0, mixHex(color, '#ffffff', 0.18));
+  g.addColorStop(1, color);
+  ctx.fillStyle = g;
+  ctx.fill();
+  const ink = isLight(color) ? '#1d2433' : '#ffffff';
+  if (isCustomIcon(icon)) {
+    // Eigenes Zeichen (Emoji, Buchstabe, Symbol)
+    const text = icon.slice(2);
+    ctx.fillStyle = ink;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    const fs = [...text].length > 1 ? size * 0.4 : size * 0.56;
+    ctx.font = `600 ${fs}px system-ui, "Noto Color Emoji", "Segoe UI Emoji", sans-serif`;
+    ctx.fillText(text, size / 2, size * 0.54);
+    return;
+  }
+  const k = (size * 0.6) / 24;
+  ctx.save();
+  ctx.translate(size * 0.2, size * 0.2);
+  ctx.scale(k, k);
+  ctx.strokeStyle = ink;
+  ctx.lineWidth = 2;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  for (const d of iconPaths(icon)) ctx.stroke(new Path2D(d));
+  ctx.restore();
+}
+
+function mixHex(a, b, t) {
+  const pa = parseInt(a.slice(1), 16);
+  const pb = parseInt(b.slice(1), 16);
+  const ch = (p, sh) => (p >> sh) & 255;
+  const m = (sh) => Math.round(ch(pa, sh) + (ch(pb, sh) - ch(pa, sh)) * t);
+  return `rgb(${m(16)}, ${m(8)}, ${m(0)})`;
+}

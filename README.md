@@ -143,6 +143,11 @@ npm run preview    # zeigt die fertige Version an (mit Service Worker)
 | `src/pdfdoc.js` | PDFs mit pdf.js öffnen: jede Seite als Bild speichern, beim Reinzoomen scharf nachmalen |
 | `src/export.js` | Seiten in hoher Auflösung malen und daraus selbst eine PDF-Datei bauen; Teilen und Herunterladen |
 | `src/mediamenu.js` | Die Menüs „Einfügen“ und „Teilen“ |
+| `src/laser.js` | **Laserpointer** (Etappe 9): leuchtende Spur auf eigenem Canvas, wird nicht gespeichert und verblasst |
+| `src/toolbarconfig.js` | Werkzeugleiste anpassen: Knöpfe ein-/ausblenden und per Ziehen umordnen |
+| `src/assist.js` | **Handschrifthilfe:** Hilfslinie beim Schreiben, Zeilen geraderücken, auf die Linien setzen |
+| `src/convert.js` | **Handschrift zu Text:** Zeilen finden, geradedrehen, mit Tesseract (offline, deutsch) lesen, Textfeld sauber ausrichten |
+| `src/folders.js` / `src/foldericons.js` | Ordner mit Farbe, Symbol (oder eigenem Zeichen) und Unterordnern |
 | `src/debug.js` | Das Diagnose-Fenster |
 | `src/sw.js` | Der Service Worker: speichert alle Dateien, damit die App offline läuft |
 | `public/manifest.webmanifest` | Steckbrief der App: Name, Icon, Farben, „ohne Browser-Leiste" |

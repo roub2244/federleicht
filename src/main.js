@@ -1697,13 +1697,13 @@ async function openNote(id, savedView = null) {
 }
 
 // Neue Notiz (im gerade offenen Ordner) anlegen und gleich öffnen
-async function createNote(folderId = null) {
+async function createNote(folderId = null, folderName = null) {
   const tpl = loadJSON('pageTemplate', DEFAULT_TEMPLATE);
   const page = createPage(tpl);
   const now = Date.now();
   const meta = {
     id: store.uid(),
-    title: defaultTitle(),
+    title: defaultTitle(folderName),
     folderId,
     created: now,
     updated: now,
@@ -1718,9 +1718,10 @@ async function createNote(folderId = null) {
   await openNote(meta.id);
 }
 
-function defaultTitle() {
+// Automatischer Titel mit Datum. Im Ordner "Mathe" heißt eine neue Notiz z. B. "Mathe vom 24.11., 08:33".
+function defaultTitle(prefix = null) {
   const d = new Date();
-  return `Notiz vom ${d.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' })}, ${d.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}`;
+  return `${prefix || 'Notiz'} vom ${d.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' })}, ${d.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}`;
 }
 
 // Notiz zumachen: alles speichern. Eine neue, leer gebliebene Notiz wird wieder gelöscht.

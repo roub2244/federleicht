@@ -4053,3 +4053,393 @@ body {
 .cv-switch {
   margin-top: 12px;
 }
+
+/* ---------- Ordner mit Farbe und Symbol (folders.js, home.js) ---------- */
+/* Das Symbol ist ein Canvas (paint.js "badge") und füllt sein <i> */
+.f-badge,
+.h-fbadge,
+.h-tbadge,
+.f-tbadge,
+.n-fbadge,
+.dlg-badge,
+.fd-badge,
+.fd-ibadge {
+  position: relative;
+  display: inline-block;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+.h-fbadge { width: 24px; height: 24px; border-radius: 7px; }
+.h-tbadge { width: 34px; height: 34px; border-radius: 10px; }
+.f-tbadge { width: 46px; height: 46px; border-radius: 13px; }
+.n-fbadge { width: 15px; height: 15px; border-radius: 4.5px; }
+.dlg-badge { width: 22px; height: 22px; border-radius: 6.5px; }
+.fd-badge { width: 52px; height: 52px; border-radius: 15px; }
+.fd-ibadge { width: 36px; height: 36px; border-radius: 10px; }
+
+/* Seitenleiste: Ordner-Baum */
+.h-item .h-twist {
+  flex: 0 0 18px;
+  width: 18px;
+  height: 28px;
+  margin: 0 -8px 0 -10px;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  flex-shrink: 0;
+}
+.h-item .h-twist svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transition: transform 0.15s;
+}
+.h-item .h-twist.open svg {
+  transform: rotate(90deg);
+}
+
+/* Kopf: Pfad + Titel mit Symbol */
+.h-title-wrap {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 2px;
+}
+.h-title-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+.h-title-row .h-count {
+  align-self: baseline;
+  padding-top: 10px;
+}
+.h-title-badge:empty {
+  display: none;
+}
+.h-crumbs {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-height: 0;
+  font-size: 13.5px;
+  color: var(--muted);
+}
+.h-crumbs:empty {
+  display: none;
+}
+.h-crumbs button {
+  border: none;
+  background: none;
+  padding: 2px 4px;
+  border-radius: 6px;
+  color: var(--accent);
+  font: inherit;
+  font-weight: 600;
+}
+.h-crumbs i svg {
+  width: 13px;
+  height: 13px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  display: block;
+}
+
+/* Abschnitte: "Ordner", "Heute", "Gestern" … */
+.h-content {
+  padding-bottom: 120px;
+}
+.h-sec-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 18px 32px 2px;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.h-sec-head small {
+  font-weight: 600;
+  opacity: 0.75;
+}
+.h-content .h-grid {
+  padding-bottom: 8px;
+}
+
+/* Ordner-Kacheln */
+.f-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 12px;
+  padding: 10px 32px 6px;
+}
+.f-tile {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-height: 82px;
+  padding: 14px 40px 14px 14px;
+  border: none;
+  border-radius: 20px;
+  background: var(--bar);
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+  box-shadow: 0 0 0 1px var(--line), 0 6px 16px rgba(20, 30, 60, 0.06);
+  -webkit-user-select: none;
+  user-select: none;
+  transition: transform 0.15s;
+}
+.f-tile:active {
+  transform: scale(0.98);
+}
+/* zarter Farbschimmer der Ordnerfarbe (als Canvas, gegen den Dunkelmodus) */
+.f-tint {
+  position: absolute;
+  inset: 0;
+  opacity: 0.1;
+  pointer-events: none;
+}
+.f-tint canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+.f-text {
+  position: relative;
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.f-text b {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 16px;
+  font-weight: 700;
+}
+.f-text small {
+  font-size: 12.5px;
+  color: var(--muted);
+}
+.f-more {
+  position: absolute;
+  top: 50%;
+  right: 4px;
+  width: 36px;
+  height: 36px;
+  margin-top: -18px;
+  display: grid;
+  place-items: center;
+  border: none;
+  border-radius: 12px;
+  background: none;
+  color: var(--muted);
+}
+.f-more svg {
+  width: 18px;
+  height: 18px;
+  fill: currentColor;
+}
+.f-new {
+  justify-content: center;
+  gap: 8px;
+  padding: 14px;
+  background: transparent;
+  color: var(--accent);
+  font-weight: 650;
+  box-shadow: inset 0 0 0 1.5px var(--line);
+  border: 1.5px dashed transparent;
+}
+.f-new svg {
+  width: 22px;
+  height: 22px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.2;
+  stroke-linecap: round;
+}
+
+/* Ordner-Hinweis an Notizen */
+.n-folder {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.n-folder > span {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* Listen-Ansicht */
+.n-list {
+  display: grid;
+  gap: 6px;
+  padding: 10px 24px 8px;
+}
+.n-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-height: 72px;
+  padding: 8px 52px 8px 10px;
+  border-radius: 16px;
+  background: var(--bar);
+  box-shadow: 0 0 0 1px var(--line);
+}
+.n-row .n-thumb {
+  width: 44px;
+  flex-shrink: 0;
+  border-radius: 6px;
+}
+.n-rinfo {
+  flex: 1;
+  min-width: 0;
+}
+.n-rinfo .n-title {
+  -webkit-line-clamp: 1;
+  font-size: 15.5px;
+}
+.n-rstar svg {
+  width: 15px;
+  height: 15px;
+  margin: 0 5px -2px 0;
+  fill: #fab005;
+  stroke: none;
+}
+.n-rmeta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 3px;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+.n-rmeta .n-folder {
+  margin-top: 0;
+}
+.n-dates {
+  display: grid;
+  justify-items: end;
+  gap: 2px;
+  font-size: 12.5px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.n-row .n-more {
+  top: 50%;
+  bottom: auto;
+  right: 8px;
+  margin-top: -18px;
+}
+
+/* Fenster "Ordner bearbeiten" */
+.fd-top {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.fd-top .dlg-input {
+  flex: 1;
+}
+.fd-label,
+.fd-own > span {
+  display: block;
+  margin: 14px 2px 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+}
+.fd-icons {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(44px, 1fr));
+  gap: 6px;
+  max-height: 150px;
+  overflow-y: auto;
+}
+.fd-icon {
+  display: grid;
+  place-items: center;
+  height: 46px;
+  border: 2px solid transparent;
+  border-radius: 14px;
+  background: none;
+}
+.fd-icon.selected {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.fd-own {
+  display: block;
+}
+select.dlg-input {
+  appearance: auto;
+}
+.dlg-item .dlg-badge {
+  margin-right: 2px;
+}
+@media (max-width: 760px) {
+  .n-dates {
+    display: none;
+  }
+  .f-tiles {
+    padding: 10px 16px 6px;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  }
+}
+.fd-colors {
+  margin-top: 0;
+  gap: 10px;
+}
+
+/* ---------- Schmale Bildschirme (Tablet hochkant): Werkzeuge in eine eigene zweite Reihe ---------- */
+/* Seit Etappe 9 gibt es mehr Werkzeuge (Laserpointer, Handschrifthilfe, Zu Text). Hochkant passen
+   sie nicht mehr neben die Knöpfe – dann stehen sie mittig in einer zweiten Reihe (wischbar). */
+@media (max-width: 1100px) {
+  .topbar {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-rows: auto auto;
+    row-gap: 2px;
+    height: auto;
+    padding-bottom: 6px;
+  }
+  .topbar .bar-left {
+    grid-row: 1;
+    grid-column: 1;
+    min-height: 54px;
+  }
+  .topbar .actions {
+    grid-row: 1;
+    grid-column: 2;
+  }
+  .topbar .tools {
+    grid-row: 2;
+    grid-column: 1 / -1;
+    justify-self: center;
+    max-width: 100%;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .topbar .tools::-webkit-scrollbar {
+    display: none;
+  }
+  .topbar .tool-btn {
+    flex-shrink: 0;
+  }
+}
