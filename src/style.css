@@ -4749,3 +4749,383 @@ select.dlg-input {
   pointer-events: none;
   z-index: 2;
 }
+
+/* ---------- Sperren mit PIN (lock.js) ---------- */
+.n-lock {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 46px;
+  height: 46px;
+  margin: -23px 0 0 -23px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--glass-strong);
+  color: var(--accent);
+  box-shadow: var(--menu-shadow);
+}
+.n-card.locked:not(.sealed) .n-lock {
+  left: auto;
+  top: auto;
+  right: 8px;
+  bottom: 8px;
+  width: 30px;
+  height: 30px;
+  margin: 0;
+}
+.n-lock svg,
+.f-lock svg,
+.n-rlock svg,
+.h-lockbtn svg,
+.s-note svg,
+.s-kind svg {
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.n-card.locked:not(.sealed) .n-lock svg {
+  width: 16px;
+  height: 16px;
+}
+.n-card.sealed .n-thumb canvas {
+  filter: blur(2px);
+  opacity: 0.6;
+}
+.n-rlock {
+  display: inline-grid;
+  vertical-align: -3px;
+  margin-right: 6px;
+  color: var(--accent);
+}
+.n-rlock svg {
+  width: 16px;
+  height: 16px;
+}
+.f-lock {
+  position: absolute;
+  right: 48px;
+  top: 12px;
+  color: var(--text);
+  opacity: 0.85;
+}
+.h-lockbtn.open {
+  color: var(--accent);
+}
+
+.pin-back {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: rgba(8, 10, 16, 0.55);
+  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
+  animation: fade-in 0.16s ease;
+}
+.pin-back.out {
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}
+.pin-card {
+  width: min(360px, 100%);
+  padding: 26px 24px 18px;
+  border-radius: 32px;
+  background: var(--glass-strong);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--menu-shadow);
+  color: var(--text);
+  text-align: center;
+  animation: pop 0.22s cubic-bezier(0.2, 0.9, 0.3, 1.2);
+}
+.pin-icon {
+  width: 56px;
+  height: 56px;
+  margin: 0 auto 10px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--accent-grad);
+  color: #fff;
+}
+.pin-icon svg {
+  width: 26px;
+  height: 26px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.9;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.pin-title {
+  font-size: 19px;
+  font-weight: 700;
+}
+.pin-text {
+  margin-top: 6px;
+  min-height: 20px;
+  font-size: 14px;
+  color: var(--muted);
+  line-height: 1.4;
+}
+.pin-text b {
+  color: var(--text);
+}
+.pin-dots {
+  display: flex;
+  justify-content: center;
+  gap: 14px;
+  margin: 20px 0 18px;
+  min-height: 16px;
+}
+.pin-dots i {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid var(--muted);
+  transition: background 0.1s, border-color 0.1s;
+}
+.pin-dots i.on {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.pin-dots.wrong {
+  animation: pin-shake 0.4s;
+}
+.pin-dots.wrong i {
+  border-color: #e5484d;
+  background: #e5484d;
+}
+@keyframes pin-shake {
+  20%,
+  60% {
+    transform: translateX(-9px);
+  }
+  40%,
+  80% {
+    transform: translateX(9px);
+  }
+}
+.pin-pad {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+.pin-pad button {
+  height: 62px;
+  border: none;
+  border-radius: 22px;
+  background: var(--chip);
+  color: var(--text);
+  font: inherit;
+  font-size: 24px;
+  font-weight: 600;
+  display: grid;
+  place-items: center;
+}
+.pin-pad button:active {
+  background: var(--accent-soft);
+}
+.pin-pad .pin-soft {
+  background: transparent;
+  font-size: 14px;
+  color: var(--muted);
+}
+.pin-pad svg {
+  width: 24px;
+  height: 24px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.pin-foot {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 12px;
+}
+.pin-foot:empty {
+  display: none;
+}
+.pin-ok {
+  border: none;
+  border-radius: 999px;
+  padding: 12px 22px;
+  background: var(--accent);
+  color: #fff;
+  font: inherit;
+  font-weight: 700;
+}
+.pin-link {
+  border: none;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  font-weight: 600;
+  padding: 10px;
+}
+.pin-code {
+  margin: 14px 0;
+  padding: 14px;
+  border-radius: 16px;
+  background: var(--chip);
+  color: var(--text);
+  font: 700 22px/1 ui-monospace, 'JetBrains Mono', monospace;
+  letter-spacing: 0.06em;
+  user-select: text;
+  -webkit-user-select: text;
+}
+.pin-input {
+  width: 100%;
+  margin: 16px 0 4px;
+  padding: 13px 14px;
+  border: 1.5px solid var(--line);
+  border-radius: 14px;
+  background: var(--bg);
+  color: var(--text);
+  font: 600 18px ui-monospace, monospace;
+  text-align: center;
+  letter-spacing: 0.05em;
+}
+
+/* ---------- Suche (searchindex.js) ---------- */
+.s-status,
+.s-note {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 4px 0 14px;
+  padding: 10px 14px;
+  border-radius: 14px;
+  background: var(--chip);
+  color: var(--muted);
+  font-size: 13.5px;
+}
+.s-spin {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 2px solid var(--accent-soft);
+  border-top-color: var(--accent);
+  animation: s-spin 0.8s linear infinite;
+}
+@keyframes s-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.s-results {
+  display: grid;
+  gap: 12px;
+}
+.s-result.n-card {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+  padding: 12px;
+  border-radius: 20px;
+  background: var(--bar);
+  box-shadow: 0 0 0 1px var(--line);
+}
+.s-result .n-thumb {
+  width: 92px;
+  flex-shrink: 0;
+}
+.s-body {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+.s-head {
+  display: grid;
+  gap: 1px;
+  margin-bottom: 4px;
+}
+.s-head b {
+  font-size: 16px;
+}
+.s-head small,
+.s-more {
+  color: var(--muted);
+  font-size: 12.5px;
+}
+.s-hit {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 10px;
+  border: none;
+  border-radius: 12px;
+  background: var(--chip);
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+  text-align: left;
+}
+.s-hit:active {
+  background: var(--accent-soft);
+}
+.s-kind {
+  color: var(--accent);
+  display: grid;
+}
+.s-kind svg {
+  width: 18px;
+  height: 18px;
+}
+.s-page {
+  flex-shrink: 0;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--muted);
+}
+.s-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.s-text mark {
+  background: color-mix(in srgb, var(--accent) 28%, transparent);
+  color: inherit;
+  border-radius: 4px;
+  padding: 0 2px;
+}
+.found-flash {
+  position: absolute;
+  z-index: 6;
+  pointer-events: none;
+  border-radius: 12px;
+  border: 2.5px solid var(--accent);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  animation: found 3.2s ease forwards;
+}
+@keyframes found {
+  0% {
+    opacity: 0;
+    transform: scale(1.15);
+  }
+  10%,
+  70% {
+    opacity: 1;
+    transform: none;
+  }
+  100% {
+    opacity: 0;
+  }
+}

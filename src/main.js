@@ -35,6 +35,7 @@ import { setupMoreMenu } from './moremenu.js';
 import { openOptions, closeOptions, optionsOpen } from './optionspopup.js';
 import { setupAreaPick } from './areapick.js';
 import { setupRuler } from './ruler.js';
+import * as lock from './lock.js';
 import { setupAssist } from './assist.js';
 import { convertHandwriting } from './convert.js';
 
@@ -1531,6 +1532,32 @@ moreMenu = setupMoreMenu({
   },
 });
 
+// ⋮-Menü: Notiz mit PIN sperren (siehe lock.js)
+const LOCK_ICON = '<svg viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="9.5" rx="2.2"/><path d="M8.5 11V7.5a3.5 3.5 0 0 1 7 0V11"/><path d="M12 14.6v2.4"/></svg>';
+moreEntries.push({
+  group: 'Notiz',
+  row: () =>
+    note && {
+      icon: LOCK_ICON,
+      label: note.locked ? 'Sperre entfernen' : 'Notiz mit PIN sperren',
+      hint: note.locked ? 'Öffnen geht dann wieder ohne PIN' : 'Öffnen nur noch mit deiner PIN',
+      on: Boolean(note.locked),
+      async run() {
+        if (!note) return;
+        if (!note.locked) {
+          if (!(await lock.ensurePin())) return;
+          note.locked = true;
+          toast('Notiz gesperrt – öffnen nur mit PIN');
+        } else {
+          if (!(await lock.unlock('Sperre entfernen'))) return;
+          note.locked = false;
+          toast('Sperre entfernt');
+        }
+        markDirty([], true);
+      },
+    },
+});
+
 // Alle kleinen Menüs oben zu
 function closeAllPopups() {
   closeOptions();
@@ -1817,10 +1844,12 @@ function showTitle() {
   document.title = note ? `${note.title || 'Ohne Titel'} – Federleicht` : 'Federleicht';
 }
 
-async function openNote(id, savedView = null) {
-  await leaveNote();
+async function openNote(id, savedView = null, focus = null) {
   const meta = await store.getNote(id);
   if (!meta || meta.deletedAt) return false;
+  // Gesperrte Notiz (oder in gesperrtem Ordner): erst PIN (siehe lock.js)
+  if (lock.isNoteLocked(meta, await store.getAllFolders()) && !(await lock.unlock('Notiz gesperrt'))) return false;
+  await leaveNote();
   const loaded = (await store.getPages(meta.pageIds || [])).map(store.unpackPage);
 
   stopScrollAnimation();
@@ -1843,7 +1872,14 @@ async function openNote(id, savedView = null) {
 
   // Ansicht: wie beim letzten Mal, sonst Seite 1 in voller Breite
   view.setContentHeight(doc.height + END_SPACE);
-  if (!restoreView(savedView)) {
+  if (focus && doc.pages[focus.pageIndex]) {
+    // Aus der Suche: genau zur Fundstelle und sie kurz aufleuchten lassen
+    view.fitToWidth();
+    const top = doc.top(focus.pageIndex);
+    const [, y0, , y1] = focus.box;
+    view.y = view.height / 2 - (top + (y0 + y1) / 2) * view.scale;
+    view.clamp();
+  } else if (!restoreView(savedView)) {
     view.fitToWidth();
     view.y = view.yFor(0);
     view.clamp();
@@ -1855,7 +1891,23 @@ async function openNote(id, savedView = null) {
   renderer.renderNow();
   saveSession();
   if (noteDirty || thumbDirty) saveNow({ thumbs: true });
+  if (focus) flashFound(focus);
   return true;
+}
+
+// Fundstelle der Suche markieren (leuchtender Rahmen, verblasst nach ein paar Sekunden)
+function flashFound({ pageIndex, box }) {
+  const top = doc.top(pageIndex);
+  const pad = 8;
+  const [ax, ay] = view.toScreen(box[0] - pad, box[1] - pad + top);
+  const [bx, by] = view.toScreen(box[2] + pad, box[3] + pad + top);
+  const el = document.createElement('div');
+  el.className = 'found-flash';
+  Object.assign(el.style, { left: `${ax}px`, top: `${ay}px`, width: `${bx - ax}px`, height: `${by - ay}px` });
+  stage.appendChild(el);
+  const remove = () => el.remove();
+  setTimeout(remove, 3200);
+  stage.addEventListener('pointerdown', remove, { once: true });
 }
 
 // Neue Notiz (im gerade offenen Ordner) anlegen und gleich öffnen
@@ -1913,13 +1965,19 @@ async function goHome() {
 }
 
 home = setupHome({
-  openNote: (id) => openNote(id),
+  openNote: (id, focus) => openNote(id, null, focus),
   createNote,
   createNoteFromPdf,
   darkPaper: () => renderer.darkPaper,
 });
 
 document.getElementById('btn-home').addEventListener('click', goHome);
+
+// Wieder gesperrt (App verlassen, "Jetzt sperren") und eine gesperrte Notiz ist offen -> zum Startbildschirm
+lock.onLockChange(async (open) => {
+  if (open || !note) return;
+  if (lock.isNoteLocked(note, await store.getAllFolders())) goHome();
+});
 
 titleButton.addEventListener('click', async () => {
   if (!note) return;

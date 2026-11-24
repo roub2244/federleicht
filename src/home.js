@@ -20,6 +20,8 @@ import { askText, confirmBox, chooseFrom, toast, esc } from './dialog.js';
 import { paint } from './paint.js';
 import { drawThumbnail, DEFAULT_TEMPLATE } from './templates.js';
 import { FOLDER_COLORS, badge, folderDialog, parentOf, descendants, pathOf, childrenOf, flatTree } from './folders.js';
+import * as lock from './lock.js';
+import { needsIndex, indexNote, queryWords, searchNote, matchText, norm } from './searchindex.js';
 
 export { FOLDER_COLORS };
 
@@ -56,6 +58,12 @@ const ICON = {
   chevron: '<svg viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></svg>',
   sub: '<svg viewBox="0 0 24 24"><path d="M3.5 7.5a2 2 0 0 1 2-2h4l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/><path d="M12 11v5M9.5 13.5h5"/></svg>',
   pdf: '<svg viewBox="0 0 24 24"><path d="M14 3.5H7a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8.5z"/><path d="M14 3.5v5h5"/><path d="M12 11v6M9.5 14.5 12 17l2.5-2.5"/></svg>',
+  lock: lock.LOCK_ICON,
+  unlock: '<svg viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="9.5" rx="2.2"/><path d="M8.5 11V7.5a3.5 3.5 0 0 1 6.8-1.2"/></svg>',
+  ink: '<svg viewBox="0 0 24 24"><path d="M3 15c1.4-3.6 2.8-3.6 3.7-1s2.1 2.8 3.5-1 2.4-3.4 3.4-.2 2.2 2.6 3.6-.5"/></svg>',
+  text: '<svg viewBox="0 0 24 24"><path d="M5 7V5h14v2M12 5v14M9 19h6"/></svg>',
+  key: '<svg viewBox="0 0 24 24"><circle cx="8" cy="15" r="4"/><path d="m11 12 8.5-8.5M16 7l2.5 2.5M14 9l2 2"/></svg>',
+  timer: '<svg viewBox="0 0 24 24"><circle cx="12" cy="13" r="7.5"/><path d="M12 9v4l2.5 2M9.5 3h5"/></svg>',
 };
 
 export function setupHome(api) {
@@ -71,6 +79,15 @@ export function setupHome(api) {
   let viewMode = readJSON('homeView', 'grid');                // 'grid' | 'list'
   const expanded = new Set(readJSON('homeExpanded', []));    // aufgeklappte Ordner in der Seitenleiste
   const bitmaps = new Map(); // Vorschaubilder: Notiz-ID -> { key, bitmap }
+  const indexer = { running: false, pending: 0, stop: false }; // Handschrift für die Suche lesen
+
+  // Gesperrt? (Notiz selbst oder ein Ordner darüber) – und gerade nicht entsperrt
+  const lockedNote = (n) => lock.isNoteLocked(n, folders);
+  const hiddenNote = (n) => lockedNote(n) && !lock.isUnlocked();
+  const hiddenFolder = (f) => lock.isFolderLocked(f, folders) && !lock.isUnlocked();
+  lock.onLockChange(() => {
+    if (!root.hidden) render();
+  });
 
   root.innerHTML = `
     <div class="h-scrim" data-act="drawer"></div>
@@ -79,6 +96,7 @@ export function setupHome(api) {
       <nav class="h-nav"></nav>
       <div class="h-side-foot">
         <button class="h-link" data-act="backup">${ICON.backup}<span>Sicherung</span></button>
+        <button class="h-link" data-act="pin">${ICON.key}<span>PIN und Sperre</span></button>
       </div>
     </aside>
     <section class="h-main">
@@ -88,7 +106,8 @@ export function setupHome(api) {
           <nav class="h-crumbs" aria-label="Ordnerpfad"></nav>
           <div class="h-title-row"><span class="h-title-badge"></span><h1 class="h-title"></h1><span class="h-count"></span></div>
         </div>
-        <label class="h-search">${ICON.search}<input type="search" placeholder="Notizen suchen" autocomplete="off" /></label>
+        <label class="h-search">${ICON.search}<input type="search" placeholder="Suchen – auch in Handschrift" autocomplete="off" /></label>
+        <button class="h-icon h-lockbtn" data-act="lock" hidden></button>
         <button class="h-icon" data-act="sort" aria-label="Sortieren" title="Sortieren">${ICON.sort}</button>
         <button class="h-icon" data-act="view" aria-label="Ansicht wechseln" title="Raster oder Liste"></button>
         <button class="h-chip h-pdf" data-act="import-pdf" title="PDF öffnen und darauf schreiben">${ICON.pdf}<span>PDF öffnen</span></button>
@@ -170,6 +189,8 @@ export function setupHome(api) {
 
   function render() {
     renderNav();
+    renderLockButton();
+    if (search.trim() && filter.kind !== 'trash') return renderSearch();
     const list = visibleNotes();
     const inFolder = filter.kind === 'folder';
     root.querySelector('.h-title').textContent = titleOfFilter();
@@ -219,7 +240,7 @@ export function setupHome(api) {
     if (subs) parts.push(`${subs} ${subs === 1 ? 'Ordner' : 'Ordner'}`);
     return `<div class="f-tile" data-folder="${f.id}" role="button" tabindex="0">
       <span class="f-tint">${paint(f.color)}</span>
-      ${badge(f, 'f-tbadge')}
+      ${badge(f, 'f-tbadge')}${f.locked ? `<span class="f-lock">${ICON.lock}</span>` : ''}
       <span class="f-text"><b>${esc(f.name)}</b><small>${parts.join(' · ')}</small>
         <small class="f-date">${last ? `Geändert ${esc(formatDate(last))}` : 'Noch leer'}</small></span>
       <button class="f-more" data-fmore="${f.id}" aria-label="Ordner bearbeiten">${ICON.more}</button>
@@ -234,8 +255,9 @@ export function setupHome(api) {
   function noteCard(n) {
     const pages = n.pageCount || n.pageIds?.length || 1;
     const when = filter.kind === 'trash' ? `Gelöscht ${formatDate(n.deletedAt)}` : formatDate(sort === 'created' ? n.created : n.updated);
-    return `<div class="n-card" data-id="${n.id}">
-      <div class="n-thumb"><canvas></canvas>${pages > 1 ? `<span class="n-pages">${pages}</span>` : ''}${n.favorite ? `<span class="n-star">${ICON.star}</span>` : ''}</div>
+    const locked = lockedNote(n);
+    return `<div class="n-card${locked ? ' locked' : ''}${hiddenNote(n) ? ' sealed' : ''}" data-id="${n.id}">
+      <div class="n-thumb"><canvas></canvas>${pages > 1 ? `<span class="n-pages">${pages}</span>` : ''}${n.favorite ? `<span class="n-star">${ICON.star}</span>` : ''}${locked ? `<span class="n-lock">${ICON.lock}</span>` : ''}</div>
       <div class="n-info">
         <div class="n-title">${esc(n.title || 'Ohne Titel')}</div>
         <div class="n-meta"><span>${esc(when)}</span></div>
@@ -248,10 +270,10 @@ export function setupHome(api) {
   // Listen-Ansicht: kleine Vorschau, Titel, Ordner, erstellt/geändert, Seiten
   function noteRow(n) {
     const pages = n.pageCount || n.pageIds?.length || 1;
-    return `<div class="n-card n-row" data-id="${n.id}">
+    return `<div class="n-card n-row${hiddenNote(n) ? ' sealed' : ''}" data-id="${n.id}">
       <div class="n-thumb"><canvas></canvas></div>
       <div class="n-rinfo">
-        <div class="n-title">${n.favorite ? `<span class="n-rstar">${ICON.star}</span>` : ''}${esc(n.title || 'Ohne Titel')}</div>
+        <div class="n-title">${lockedNote(n) ? `<span class="n-rlock">${ICON.lock}</span>` : ''}${n.favorite ? `<span class="n-rstar">${ICON.star}</span>` : ''}${esc(n.title || 'Ohne Titel')}</div>
         <div class="n-rmeta">${folderChip(n)}<span>${pages} ${pages === 1 ? 'Seite' : 'Seiten'}</span></div>
       </div>
       <div class="n-dates">
@@ -308,7 +330,7 @@ export function setupHome(api) {
     for (const n of list) {
       const canvas = grid.querySelector(`.n-card[data-id="${n.id}"] .n-thumb canvas`);
       if (!canvas) continue;
-      const blob = dark ? n.thumbDark : n.thumbLight;
+      const blob = hiddenNote(n) ? null : dark ? n.thumbDark : n.thumbLight;
       const tpl = n.firstTemplate || DEFAULT_TEMPLATE;
       if (!blob) {
         drawThumbnail(canvas, tpl, { dark, faint: true });
@@ -357,6 +379,19 @@ export function setupHome(api) {
     if (act === 'new-folder') return newFolder();
     if (act === 'sort') return openSortMenu(t.closest('button'));
     if (act === 'backup') return openBackupMenu(t.closest('button'));
+    if (act === 'pin') return openPinMenu(t.closest('button'));
+    if (act === 'lock') {
+      if (lock.isUnlocked()) {
+        lock.lockNow();
+        toast('Gesperrt');
+      } else await lock.unlock('Entsperren');
+      return;
+    }
+    const hit = t.closest('[data-hit]');
+    if (hit) {
+      const [id, pageIndex, x0, y0, x1, y1] = hit.dataset.hit.split(',');
+      return api.openNote(id, { pageIndex: Number(pageIndex), box: [x0, y0, x1, y1].map(Number), words: queryWords(search) });
+    }
     if (act === 'empty-trash') return emptyTrash();
 
     const fmore = t.closest('[data-fmore]');
@@ -377,12 +412,16 @@ export function setupHome(api) {
     const tile = t.closest('[data-folder]');
     if (crumb || tile) {
       const id = crumb ? crumb.dataset.crumb : tile.dataset.folder;
+      const f = id && folderOf(id);
+      if (f && hiddenFolder(f) && !(await lock.unlock('Ordner gesperrt'))) return;
       openFolder(id || null);
       return;
     }
 
     const navItem = t.closest('[data-filter]');
     if (navItem) {
+      const f = navItem.dataset.filter === 'folder' && folderOf(navItem.dataset.id);
+      if (f && hiddenFolder(f) && !(await lock.unlock('Ordner gesperrt'))) return;
       filter = navItem.dataset.filter === 'folder' ? { kind: 'folder', id: navItem.dataset.id } : { kind: navItem.dataset.filter };
       saveJSON('homeFilter', filter);
       drawerOpen = false;
@@ -395,6 +434,7 @@ export function setupHome(api) {
       if (t.closest('[data-more]')) return openNoteMenu(card.dataset.id, t.closest('[data-more]'));
       const note = notes.find((n) => n.id === card.dataset.id);
       if (note?.deletedAt) return openNoteMenu(note.id, card.querySelector('[data-more]'));
+      if (note && hiddenNote(note) && !(await lock.unlock('Notiz gesperrt'))) return;
       return api.openNote(card.dataset.id);
     }
   });
@@ -492,6 +532,9 @@ export function setupHome(api) {
       { icon: ICON.star, label: note.favorite ? 'Kein Favorit mehr' : 'Als Favorit markieren', run: () => update(note, { favorite: !note.favorite }) },
       { icon: ICON.move, label: 'In Ordner verschieben', run: () => moveNote(note) },
       { icon: ICON.copy, label: 'Duplizieren', run: () => duplicate(note) },
+      note.locked
+        ? { icon: ICON.unlock, label: 'Sperre entfernen', run: () => setLocked(note, false) }
+        : { icon: ICON.lock, label: 'Mit PIN sperren', run: () => setLocked(note, true) },
       '-',
       { icon: ICON.trash, label: 'Löschen', danger: true, run: () => trash(note) },
     ]);
@@ -504,6 +547,9 @@ export function setupHome(api) {
       { icon: ICON.rename, label: 'Bearbeiten (Name, Farbe, Symbol)', run: () => editFolder(folder) },
       { icon: ICON.sub, label: 'Unterordner anlegen', run: () => newFolder(true, folder.id) },
       { icon: ICON.move, label: 'Verschieben', run: () => moveFolder(folder) },
+      folder.locked
+        ? { icon: ICON.unlock, label: 'Sperre entfernen', run: () => setFolderLocked(folder, false) }
+        : { icon: ICON.lock, label: 'Ordner mit PIN sperren', run: () => setFolderLocked(folder, true) },
       '-',
       { icon: ICON.trash, label: 'Ordner löschen', danger: true, run: () => removeFolder(folder) },
     ]);
@@ -528,6 +574,178 @@ export function setupHome(api) {
       { icon: ICON.backup, label: 'Sicherung speichern (Datei)', run: exportBackup },
       { icon: ICON.upload, label: 'Sicherung laden', run: importBackup },
     ]);
+  }
+
+  // ---------- Sperren (siehe lock.js) ----------
+  async function setLocked(note, on) {
+    if (on) {
+      if (!(await lock.ensurePin())) return;
+      await update(note, { locked: true }, 'Notiz gesperrt – öffnen nur mit PIN');
+    } else {
+      if (!(await lock.unlock('Sperre entfernen'))) return;
+      await update(note, { locked: false }, 'Sperre entfernt');
+    }
+  }
+
+  async function setFolderLocked(folder, on) {
+    if (on) {
+      if (!(await lock.ensurePin())) return;
+    } else if (!(await lock.unlock('Sperre entfernen'))) return;
+    folder.locked = on;
+    await store.putFolder(folder);
+    render();
+    toast(on ? `„${folder.name}“ gesperrt – mit allen Notizen und Unterordnern` : 'Sperre entfernt');
+  }
+
+  function renderLockButton() {
+    const btn = root.querySelector('[data-act="lock"]');
+    const any = notes.some((n) => n.locked && !n.deletedAt) || folders.some((f) => f.locked);
+    btn.hidden = !any || !lock.hasPin();
+    btn.innerHTML = lock.isUnlocked() ? ICON.unlock : ICON.lock;
+    btn.title = lock.isUnlocked() ? 'Jetzt sperren' : 'Entsperren';
+    btn.classList.toggle('open', lock.isUnlocked());
+  }
+
+  function openPinMenu(anchor) {
+    const auto = lock.autoLockSetting();
+    const label = { leave: 'beim Verlassen der App', '1min': '1 Minute nach dem Verlassen', '5min': '5 Minuten nach dem Verlassen' };
+    if (!lock.hasPin()) {
+      return showMenu(anchor, [{ icon: ICON.key, label: 'PIN festlegen', run: () => lock.ensurePin().then(render) }]);
+    }
+    showMenu(anchor, [
+      lock.isUnlocked()
+        ? { icon: ICON.lock, label: 'Jetzt sperren', run: () => lock.lockNow() }
+        : { icon: ICON.unlock, label: 'Entsperren', run: () => lock.unlock('Entsperren') },
+      { icon: ICON.key, label: 'PIN ändern', run: () => lock.changePin() },
+      { icon: ICON.restore, label: 'PIN vergessen? (Code)', run: () => lock.recover() },
+      '-',
+      ...Object.entries(label).map(([id, text]) => ({
+        icon: ICON.timer,
+        label: `${id === auto ? '✓ ' : ''}Sperren ${text}`,
+        run: () => {
+          lock.setAutoLock(id);
+          toast(`Wird ${text} wieder gesperrt`);
+        },
+      })),
+    ]);
+  }
+
+  // ---------- Suche (auch in Handschrift, siehe searchindex.js) ----------
+  function renderSearch() {
+    const words = queryWords(search);
+    const pool = live();
+    // 1. Titel und Ordnernamen
+    const byTitle = pool.filter((n) => matchText(`${n.title || ''} ${folderOf(n.folderId)?.name || ''}`, words));
+    // 2. Inhalt: Text und Handschrift (gesperrte Notizen nur, wenn entsperrt)
+    const inside = [];
+    let skippedLocked = 0;
+    for (const n of pool) {
+      if (hiddenNote(n)) {
+        if (n.index) skippedLocked++;
+        continue;
+      }
+      const hits = searchNote(n, words);
+      if (hits.length) inside.push({ note: n, hits });
+    }
+    inside.sort((a, b) => b.hits.length - a.hits.length || b.note.updated - a.note.updated);
+    const total = new Set([...byTitle.map((n) => n.id), ...inside.map((r) => r.note.id)]).size;
+
+    root.querySelector('.h-title').textContent = 'Suche';
+    root.querySelector('.h-title-badge').innerHTML = '';
+    root.querySelector('.h-crumbs').innerHTML = '';
+    root.querySelector('.h-count').textContent = `${total} ${total === 1 ? 'Notiz' : 'Notizen'}`;
+    root.querySelector('[data-act="empty-trash"]').hidden = true;
+
+    let html = '';
+    if (indexer.pending > 0) {
+      html += `<div class="s-status"><span class="s-spin"></span>Handschrift wird für die Suche gelesen … noch ${indexer.pending} ${indexer.pending === 1 ? 'Notiz' : 'Notizen'}</div>`;
+    }
+    if (byTitle.length) {
+      html += `<section class="h-sec"><div class="h-sec-head"><span>Titel und Ordner</span><small>${byTitle.length}</small></div>
+        <div class="${viewMode === 'list' ? 'n-list' : 'h-grid'}">${byTitle.map(viewMode === 'list' ? noteRow : noteCard).join('')}</div></section>`;
+    }
+    if (inside.length) {
+      html += `<section class="h-sec"><div class="h-sec-head"><span>In deinen Notizen</span><small>${inside.length}</small></div>
+        <div class="s-results">${inside.map(({ note, hits }) => resultRow(note, hits, words)).join('')}</div></section>`;
+    }
+    if (skippedLocked) html += `<div class="s-note">${ICON.lock}<span>${skippedLocked} gesperrte ${skippedLocked === 1 ? 'Notiz wurde' : 'Notizen wurden'} nicht durchsucht – erst entsperren.</span></div>`;
+    grid.innerHTML = html;
+    empty.hidden = total > 0;
+    if (!empty.hidden) {
+      empty.innerHTML = `<div class="h-empty-icon">${ICON.search}</div><b>Nichts gefunden</b><span>${
+        indexer.pending ? 'Ein paar Notizen werden noch gelesen – gleich nochmal schauen.' : 'Weder im Titel noch im Text oder in der Handschrift.'
+      }</span>`;
+    }
+    drawThumbs([...byTitle, ...inside.map((r) => r.note)]);
+  }
+
+  function resultRow(note, hits, words) {
+    const pages = new Set(hits.map((h) => h.pageIndex)).size;
+    const shown = hits.slice(0, 4);
+    return `<div class="s-result n-card" data-id="${note.id}">
+      <div class="n-thumb"><canvas></canvas></div>
+      <div class="s-body">
+        <div class="s-head"><b>${esc(note.title || 'Ohne Titel')}</b><small>${hits.length} ${hits.length === 1 ? 'Treffer' : 'Treffer'}${pages > 1 ? ` auf ${pages} Seiten` : ''}${folderOf(note.folderId) ? ` · ${esc(folderOf(note.folderId).name)}` : ''}</small></div>
+        ${shown
+          .map(
+            (h) => `<button class="s-hit" data-hit="${note.id},${h.pageIndex},${h.line.b.join(',')}">
+              <span class="s-kind" title="${h.line.k === 'ink' ? 'Handschrift' : 'Text'}">${h.line.k === 'ink' ? ICON.ink : ICON.text}</span>
+              <span class="s-page">S. ${h.pageIndex + 1}</span>
+              <span class="s-text">${highlight(h.line.t, h.spans)}</span></button>`
+          )
+          .join('')}
+        ${hits.length > shown.length ? `<small class="s-more">+ ${hits.length - shown.length} weitere</small>` : ''}
+      </div>
+    </div>`;
+  }
+
+  // Treffer im Text hervorheben (spans beziehen sich auf den vereinfachten Text, siehe norm())
+  function highlight(text, spans) {
+    const sorted = [...spans].sort((a, b) => a[0] - b[0]);
+    let out = '';
+    let at = 0;
+    for (const [a, b] of sorted) {
+      if (a < at) continue;
+      out += esc(text.slice(at, a)) + `<mark>${esc(text.slice(a, b))}</mark>`;
+      at = b;
+    }
+    return out + esc(text.slice(at));
+  }
+
+  // Im Hintergrund Notizen lesen, die neu sind oder sich geändert haben (die neuesten zuerst).
+  // Läuft nur, solange der Startbildschirm offen ist – beim Schreiben soll nichts bremsen.
+  async function runIndexer() {
+    if (indexer.running) return;
+    indexer.running = true;
+    indexer.stop = false;
+    try {
+      for (;;) {
+        const todo = notes.filter(needsIndex).sort((a, b) => b.updated - a.updated);
+        indexer.pending = todo.length;
+        if (!todo.length || indexer.stop || root.hidden) break;
+        const n = todo[0];
+        let ix = null;
+        try {
+          ix = await indexNote(n, { stop: () => indexer.stop || root.hidden });
+        } catch (err) {
+          console.warn('Lesen für die Suche ging nicht', err);
+          ix = { v: 1, at: Date.now(), pages: n.index?.pages || {}, failed: true };
+        }
+        if (!ix) break;
+        // Frisch aus dem Speicher holen, damit nichts anderes überschrieben wird
+        const latest = await store.getNote(n.id);
+        if (!latest) continue;
+        if ((latest.updated || 0) > ix.at) ix.at = 0; // inzwischen geändert -> nächstes Mal nochmal
+        latest.index = ix;
+        await store.putNote(latest);
+        n.index = ix;
+        if (search.trim()) render();
+      }
+    } finally {
+      indexer.running = false;
+      indexer.pending = notes.filter(needsIndex).length;
+      if (search.trim() && !root.hidden) render();
+    }
   }
 
   // ---------- Aktionen ----------
@@ -748,8 +966,11 @@ export function setupHome(api) {
       document.documentElement.classList.add('home-open');
       closeMenu();
       await reload();
+      // Kurz warten (Startbildschirm soll erst flüssig erscheinen), dann für die Suche lesen
+      setTimeout(runIndexer, 1500);
     },
     hide() {
+      indexer.stop = true;
       root.hidden = true;
       document.documentElement.classList.remove('home-open');
       closeMenu();
