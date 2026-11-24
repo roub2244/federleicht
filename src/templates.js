@@ -303,3 +303,25 @@ export function ruling(tpl) {
   if (kind === 'college') return { y0: 16 * MM + step, step, y1: PAGE_HEIGHT - 10 * MM };
   return { y0: 22 * MM + step, step, y1: PAGE_HEIGHT - 52 * MM - step * 0.5 };
 }
+
+// Waagerechte Linien des Papiers, auf die man schreiben kann (für die Handschrifthilfe):
+// liniert, Collegeblock, Cornell wie ruling(); dazu kariert, Mathe-Heft, gepunktet (jede Karo-Linie)
+// und Millimeterpapier (alle 5 mm). kind: 'lines' (eine Zeile pro Linie) oder 'grid' (Kästchen).
+// Ergebnis: { kind, y0, step, y1 } (Seiten-Einheiten) oder null (leeres Papier, Notenlinien).
+export function paperLines(tpl) {
+  const kind = tpl?.kind;
+  const r = ruling(tpl);
+  if (r) return { kind: 'lines', ...r };
+  const sp = SPACING[kind];
+  if (kind === 'grid' || kind === 'dots') {
+    const step = (sp[tpl.spacing] ?? sp.M) * MM;
+    return { kind: 'grid', y0: (PAGE_HEIGHT % step) / 2, step, y1: PAGE_HEIGHT };
+  }
+  if (kind === 'math') {
+    const step = (sp[tpl.spacing] ?? sp.M) * MM;
+    const rows = Math.floor((PAGE_HEIGHT - 14 * MM - 12 * MM) / step);
+    return { kind: 'grid', y0: 14 * MM, step, y1: 14 * MM + rows * step };
+  }
+  if (kind === 'mm') return { kind: 'grid', y0: 12 * MM, step: 5 * MM, y1: 12 * MM + 270 * MM };
+  return null;
+}

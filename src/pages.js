@@ -11,6 +11,7 @@
 //
 // Die eigentliche Arbeit (Seiten ändern, Rückgängig) macht main.js über "api".
 
+import { anchorRect } from './toolbarconfig.js';
 import { TEMPLATES, PAPERS, hasSpacing, paperColor, drawThumbnail } from './templates.js';
 import { paint } from './paint.js';
 import { fillStroke, setInkTheme, inkTheme } from './ink.js';
@@ -122,7 +123,7 @@ export function setupPages(api) {
 
   // Popup unter den Knopf setzen, aber nicht über den Bildschirmrand hinaus
   function place(el, button) {
-    const b = button.getBoundingClientRect();
+    const b = anchorRect(button);
     const w = el.offsetWidth;
     el.style.left = `${Math.min(window.innerWidth - w - 8, Math.max(8, b.left + b.width / 2 - w / 2))}px`;
     el.style.top = `${b.bottom + 12}px`;

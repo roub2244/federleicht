@@ -8,7 +8,6 @@ import { setupPages } from './pages.js';
 import { Renderer } from './renderer.js';
 import { createStroke, buildPath, finishStroke, fillStroke, strokeHit, cutStroke, inkTheme, setInkTheme, displayColor } from './ink.js';
 import { setupInput } from './input.js';
-import { Debug } from './debug.js';
 import { HoldDetector, averagePressure, longEnough } from './straighten.js';
 import { History } from './history.js';
 import { LiftTracker } from './lift.js';
@@ -32,6 +31,9 @@ import { computeFill, createFill } from './fill.js';
 import { openImageEditor } from './imageeditor.js';
 import { setupLaser } from './laser.js';
 import { setupToolbarConfig } from './toolbarconfig.js';
+import { setupMoreMenu } from './moremenu.js';
+import { openOptions, closeOptions, optionsOpen } from './optionspopup.js';
+import { setupAreaPick } from './areapick.js';
 import { setupAssist } from './assist.js';
 import { convertHandwriting } from './convert.js';
 
@@ -50,8 +52,8 @@ const redoButton = document.getElementById('btn-redo');
 const doc = new NoteDocument(loadJSON('pageTemplate', DEFAULT_TEMPLATE));
 const view = new View();                  // Zoom und Verschiebung
 const renderer = new Renderer(canvas, view, doc);
-const debug = new Debug(document.getElementById('debug'), renderer);
 const laser = setupLaser({ stage, view, tools }); // Laserpointer (siehe laser.js)
+const areaPick = setupAreaPick({ stage, view, doc }); // Bereich wählen (Zu Text, Mathe-Hilfe)
 
 let current = null;      // der Strich, der gerade geschrieben wird
 let currentPage = null;  // ... auf dieser Seite
@@ -68,7 +70,9 @@ let swallowPen = false;  // dieser Stift-Strich hebt nur eine Auswahl auf (z. B.
 let mediaMenu = null;    // Menüs "Einfügen" und "Teilen" (siehe mediamenu.js)
 let claudeMenu = null;   // Claude-Knopf (siehe claudemenu.js)
 let assist = null;       // Handschrifthilfe (siehe assist.js), wird weiter unten eingerichtet
-let lasering = false;    // Laserpointer: Stift liegt gerade auf (siehe laser.js)
+let lasering = false;
+let moreMenu = null;     // ⋮-Menü oben rechts (siehe moremenu.js)
+let picking = false;     // Stift zieht gerade einen Rahmen (Bereich wählen, siehe areapick.js)    // Laserpointer: Stift liegt gerade auf (siehe laser.js)
 
 // Rückgängig/Wiederholen: bei jeder Änderung die Knöpfe an- oder ausgrauen
 const history = new History(() => {
@@ -90,11 +94,15 @@ const steady = new Steadier();
 // input.js ruft diese Funktionen auf, je nachdem was Stift und Finger machen.
 const app = {
   view,
-  debug,
 
   startStroke(point, pointerType) {
     liftedPointer = null;
     swallowPen = false;
+    // Bereich wählen: der Stift zieht einen Rahmen statt zu zeichnen
+    if (areaPick.active) {
+      picking = true;
+      return areaPick.down(point);
+    }
     // Laserpointer: leuchtende Spur, die nicht gespeichert wird
     if (tools.tool === 'laser') {
       lasering = true;
@@ -124,6 +132,7 @@ const app = {
 
   extendStroke(points, predicted) {
     if (points.length === 0 || swallowPen) return;
+    if (picking) return areaPick.move(points[points.length - 1]);
     if (lasering) return laser.move(points);
     if (tools.tool === 'lasso') return lasso.penMove(points);
     if (shapeDrag) return updateShapeDrag(toLocal(points[points.length - 1]));
@@ -135,7 +144,6 @@ const app = {
       if (!liftedPointer) return;
       const first = points.findIndex((p) => lift.isRetouch(p[2]));
       if (first < 0) return;
-      debug.addLine('Wieder aufgedrückt → neuer Strich');
       beginStroke(points[first], liftedPointer);
       liftedPointer = null;
       points = points.slice(first + 1);
@@ -168,7 +176,6 @@ const app = {
         } else if (verdict?.cut !== undefined) {
           // Stift ist abgesetzt, liegt aber noch leicht auf: Strich hier beenden
           current.points.length = Math.max(1, verdict.cut);
-          debug.addLine(`Abheben erkannt (Druck ${p[2].toFixed(3)}) → Strich beendet`);
           finishCurrentStroke();
           liftedPointer = 'pen';
           // Falls in denselben Punkten schon wieder aufgedrückt wurde: gleich weitermachen
@@ -184,6 +191,10 @@ const app = {
 
   endStroke() {
     liftedPointer = null;
+    if (picking) {
+      picking = false;
+      return areaPick.up();
+    }
     if (lasering) {
       lasering = false;
       return laser.up();
@@ -440,7 +451,6 @@ function straightenCurrentStroke() {
   current.fit = { shape, ref: [end[0], end[1]] };
   applyShapeFit(end);
   drawCurrentStroke([]);
-  debug.addLine(`Form erkannt: ${shape.kind}`);
   navigator.vibrate?.(12); // kurzes Ruckeln als Rückmeldung (falls das Gerät es kann)
 }
 
@@ -833,6 +843,7 @@ function afterViewChange() {
   lasso?.place();
   laser.redraw();
   assist?.redraw();
+  areaPick.redraw();
   zoomButton.textContent = `${Math.round((view.scale / view.fitScale) * 100)} %`;
   pages?.onViewChange();
   scheduleSession();
@@ -927,6 +938,7 @@ mediaMenu = setupMediaMenu({
     toolbar.closePopup();
     pages.closePopup();
     claudeMenu?.close();
+    moreMenu?.close();
   },
 });
 
@@ -951,6 +963,7 @@ claudeMenu = setupClaudeMenu({
     toolbar.closePopup();
     pages.closePopup();
     mediaMenu?.close();
+    moreMenu?.close();
   },
 });
 
@@ -1283,6 +1296,7 @@ pages = setupPages({
     toolbar.closePopup();
     mediaMenu?.close();
     claudeMenu?.close();
+    moreMenu?.close();
   },
 });
 
@@ -1323,19 +1337,53 @@ assist = setupAssist({
   renderer,
   commit: commitChanges,
   isOn: () => tools.assist,
+  options: () => tools.assistOpts,
 });
 const assistButton = document.getElementById('btn-assist');
 function applyAssistButton() {
   assistButton.classList.toggle('on', tools.assist);
   assistButton.setAttribute('aria-pressed', String(tools.assist));
 }
-assistButton.addEventListener('click', () => {
-  tools.assist = !tools.assist;
+function setAssist(on) {
+  tools.assist = on;
   saveTools(tools);
-  if (!tools.assist) assist.reset();
+  if (!on) assist.reset();
   applyAssistButton();
-  toast(tools.assist ? 'Handschrifthilfe an: Zeilen werden nach dem Schreiben geradegerückt' : 'Handschrifthilfe aus');
+}
+// Aus -> antippen schaltet an. An -> antippen öffnet die Einstellungen (wie bei den Stiften).
+assistButton.addEventListener('click', () => {
+  if (optionsOpen(assistButton)) return closeOptions();
+  closeAllPopups();
+  if (!tools.assist) {
+    setAssist(true);
+    toast('Handschrifthilfe an – nochmal antippen für Einstellungen');
+    return;
+  }
+  openAssistOptions();
 });
+function openAssistOptions() {
+  openOptions(assistButton, {
+    title: 'Handschrifthilfe',
+    rows: [
+      { type: 'switch', key: 'on', main: true, label: 'Handschrifthilfe', hint: 'Hilft dir, ordentlich in der Zeile zu schreiben' },
+      { type: 'title', text: 'Beim Schreiben' },
+      { type: 'switch', key: 'guide', label: 'Hilfslinie zeigen', hint: 'Leeres Papier: gestrichelte Linie. Liniert/kariert: die Ziel-Linie leuchtet' },
+      { type: 'title', text: 'Wenn die Zeile fertig ist' },
+      { type: 'switch', key: 'straighten', label: 'Schräge Zeilen geraderücken', hint: 'Bergauf oder bergab Geschriebenes wird waagerecht' },
+      { type: 'switch', key: 'snap', label: 'Auf die Linien des Papiers setzen', hint: 'Liniert, kariert, Mathe-Heft, Millimeter: Die Schrift steht genau auf der Linie' },
+      { type: 'switch', key: 'fit', label: 'An die Zeilenhöhe anpassen', hint: 'Zu große Schrift wird kleiner, damit sie zwischen die Linien passt' },
+      { type: 'seg', key: 'boxes', label: 'Zeilenhöhe auf Karopapier', options: [[1, '1 Kästchen'], [2, '2 Kästchen'], [3, '3 Kästchen']], when: () => tools.assistOpts.fit },
+      { type: 'note', text: 'Einmal „Rückgängig“ holt deine Original-Schrift zurück.' },
+    ],
+    get: (key) => (key === 'on' ? tools.assist : tools.assistOpts[key]),
+    set(key, value) {
+      if (key === 'on') return setAssist(value);
+      tools.assistOpts[key] = value;
+      saveTools(tools);
+      assist.redraw();
+    },
+  });
+}
 applyAssistButton();
 
 // Handschrift in Text umwandeln: die Lasso-Auswahl, sonst alles auf der Seite in der Mitte
@@ -1346,24 +1394,75 @@ async function convertInk(page, strokes) {
     toast('In Text umgewandelt – antippen mit dem Text-Werkzeug zum Bearbeiten', { label: 'Rückgängig', run: undo });
   }
 }
-document.getElementById('btn-convert').addEventListener('click', () => {
+// Knopf "Zu Text": Ist etwas mit dem Lasso ausgewählt, wird das umgewandelt.
+// Sonst ziehst du mit dem Stift einen Rahmen um die Handschrift, die Text werden soll –
+// oder wählst in der Leiste "Ganze Seite".
+const convertButton = document.getElementById('btn-convert');
+convertButton.addEventListener('click', async () => {
+  closeAllPopups();
   const sel = lasso.selection;
   if (sel) {
     lasso.clear();
     return convertInk(sel.page, sel.items);
   }
-  const page = doc.pages[currentIndex()];
-  const ink = page.strokes.filter((s) => s.tool === 'pen' && !s.shape);
-  if (!ink.length) return toast('Hier ist keine Handschrift – erst schreiben oder mit dem Lasso auswählen');
-  convertInk(page, ink);
+  if (areaPick.active) return areaPick.cancel();
+  convertButton.classList.add('on');
+  const result = await areaPick.start({
+    title: 'Handschrift zu Text',
+    hint: 'Ziehe mit dem Stift einen Rahmen um die Handschrift, die Text werden soll',
+    icon: convertButton.querySelector('svg').outerHTML,
+    actions: [{ id: 'page', label: 'Ganze Seite' }],
+  });
+  convertButton.classList.remove('on');
+  if (!result) return;
+  if (result.action === 'page') {
+    const page = doc.pages[currentIndex()];
+    const ink = page.strokes.filter((s) => s.tool === 'pen' && !s.shape);
+    if (!ink.length) return toast('Auf dieser Seite ist keine Handschrift');
+    return convertInk(page, ink);
+  }
+  const ink = result.items.filter((s) => s.tool === 'pen' && !s.shape);
+  if (!ink.length) return toast('Im Rahmen ist keine Handschrift – nochmal versuchen');
+  convertInk(result.page, ink);
 });
 
-// ---------- Werkzeugleiste anpassen (siehe toolbarconfig.js) ----------
+// ---------- Werkzeugleiste anpassen und ⋮-Menü (siehe toolbarconfig.js, moremenu.js) ----------
 const toolbarConfig = setupToolbarConfig();
-document.getElementById('btn-customize').addEventListener('click', () => {
-  toolbar.closePopup();
-  toolbarConfig.open();
+// Weitere Einträge im ⋮-Menü (Sprachaufnahme, Mathe-Hilfe, Notiz sperren …) melden sich hier an
+const moreEntries = [];
+moreMenu = setupMoreMenu({
+  sections: () => {
+    const groups = new Map();
+    for (const e of moreEntries) {
+      const row = e.row();
+      if (!row) continue;
+      if (!groups.has(e.group)) groups.set(e.group, []);
+      groups.get(e.group).push(row);
+    }
+    return [...groups].map(([title, rows]) => ({ title, rows }));
+  },
+  hiddenItems: () => toolbarConfig.hiddenItems(),
+  customize() {
+    closeAllPopups();
+    toolbarConfig.open();
+  },
+  closeOtherPopups() {
+    toolbar.closePopup();
+    pages.closePopup();
+    mediaMenu?.close();
+    claudeMenu?.close();
+  },
 });
+
+// Alle kleinen Menüs oben zu
+function closeAllPopups() {
+  closeOptions();
+  toolbar.closePopup();
+  pages.closePopup();
+  mediaMenu?.close();
+  claudeMenu?.close();
+  moreMenu?.close();
+}
 
 undoButton.addEventListener('click', undo);
 redoButton.addEventListener('click', redo);
@@ -1416,20 +1515,6 @@ zoomButton.addEventListener('click', () => {
   view.fitToWidth();
   afterViewChange();
 });
-
-// Diagnose ein/aus (die Einstellung wird gemerkt)
-const debugButton = document.getElementById('btn-debug');
-let debugVisible = readSetting('debug', 'on') === 'on';
-function applyDebugVisible() {
-  debug.setVisible(debugVisible);
-  debugButton.classList.toggle('active', debugVisible);
-}
-debugButton.addEventListener('click', () => {
-  debugVisible = !debugVisible;
-  saveSetting('debug', debugVisible ? 'on' : 'off');
-  applyDebugVisible();
-});
-applyDebugVisible();
 
 // "App installieren": Chrome meldet mit "beforeinstallprompt", dass es geht
 const installButton = document.getElementById('btn-install');
@@ -1731,6 +1816,7 @@ async function leaveNote() {
   lasso.clear();
   assist.reset();
   laser.clear();
+  areaPick.cancel();
   if (current) app.endStroke();
   if (erasing) app.endErase();
   const leaving = note;

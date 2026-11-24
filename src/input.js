@@ -142,7 +142,6 @@ export function setupInput(canvas, app) {
     clickTimer = setTimeout(() => {
       if (!contactSinceRelease) {
         setStickyEraser(!stickyEraser);
-        app.debug.addLine(`Knopf-Klick → Radierer ${stickyEraser ? 'AN' : 'AUS'}`);
       }
     }, ARM_MS);
   }
@@ -167,7 +166,6 @@ export function setupInput(canvas, app) {
       app.showEraser(null);
       eraserShown = false;
     }
-    app.debug.addLine('Knopf lange gehalten → Schnellmenü');
     app.openQuickMenu(lastClient[0], lastClient[1]);
   }
 
@@ -357,7 +355,6 @@ export function setupInput(canvas, app) {
     const touching = contacts.size > 0 || penMode !== 'none';
     const justLifted = e.timeStamp - lastContactEnd < CONTEXT_AFTER_LIFT_MS;
     if (touching || justLifted) {
-      app.debug.addLine('contextmenu beim/nach dem Schreiben → ignoriert');
       return;
     }
     if (e.timeStamp - lastPenTime < 1000) buttonReleasedAt = e.timeStamp;
@@ -503,8 +500,8 @@ export function setupInput(canvas, app) {
   function onPointerEvent(e) {
     // Jede neue Berührung hält das Weiterrollen an (wie beim Handy)
     if (e.type === 'pointerdown') app.stopFling();
-    const status = e.pointerType === 'touch' ? handleTouch(e) : handlePen(e);
-    app.debug.record(e, status);
+    if (e.pointerType === 'touch') handleTouch(e);
+    else handlePen(e);
   }
 
   for (const type of ['pointerdown', 'pointermove', 'pointerup', 'pointercancel']) {
@@ -515,7 +512,6 @@ export function setupInput(canvas, app) {
   canvas.addEventListener('lostpointercapture', (e) => {
     if (contacts.has(e.pointerId)) {
       abortContacts();
-      app.debug.addLine(`lostpointercapture id=${e.pointerId} → Strich beendet`);
     }
   });
 

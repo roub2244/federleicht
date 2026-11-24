@@ -3,6 +3,8 @@
 // Die eigentliche Arbeit macht main.js über "api":
 //   api.insertImages(files)   api.insertPdf(file)   api.exportNote(kind, how)
 
+import { anchorRect } from './toolbarconfig.js';
+
 const ICON = {
   image: '<svg viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="14" rx="2.5"/><circle cx="9" cy="10" r="1.6"/><path d="m4 17.5 5-4.5 4 3.5 2.5-2 4.5 3.5"/></svg>',
   camera: '<svg viewBox="0 0 24 24"><path d="M4 8.5a2 2 0 0 1 2-2h2l1.5-2h5L16 6.5h2a2 2 0 0 1 2 2V18a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z"/><circle cx="12" cy="13" r="3.5"/></svg>',
@@ -83,7 +85,7 @@ export function setupMediaMenu(api) {
     popup.hidden = false;
     insertBtn.classList.toggle('active', kind === 'insert');
     shareBtn.classList.toggle('active', kind === 'share');
-    const b = button.getBoundingClientRect();
+    const b = anchorRect(button);
     const w = popup.offsetWidth;
     popup.style.left = `${Math.min(window.innerWidth - w - 8, Math.max(8, b.left + b.width / 2 - w / 2))}px`;
     popup.style.top = `${b.bottom + 12}px`;

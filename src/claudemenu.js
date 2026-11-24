@@ -16,6 +16,7 @@
 //   api.pageLabel()        -> z. B. "Bio (Seite 2)" für den Dateinamen
 //   api.closeOtherPopups()
 
+import { anchorRect } from './toolbarconfig.js';
 import { esc, toast } from './dialog.js';
 import { canShareFile, shareFile, downloadFile, fileName } from './export.js';
 
@@ -69,7 +70,7 @@ export function setupClaudeMenu(api) {
     open = true;
     popup.hidden = false;
     button.classList.add('active');
-    const b = button.getBoundingClientRect();
+    const b = anchorRect(button);
     const w = popup.offsetWidth;
     popup.style.left = `${Math.min(window.innerWidth - w - 8, Math.max(8, b.left + b.width / 2 - w / 2))}px`;
     popup.style.top = `${b.bottom + 12}px`;
