@@ -25,7 +25,6 @@ import { paint } from './paint.js';
 import { isLight } from './pens.js';
 import { createColorPicker } from './colorpicker.js';
 import { paperColor } from './templates.js';
-import { mathPopHTML, shift } from './mathkeys.js';
 
 const ICON = {
   move: '<svg viewBox="0 0 24 24"><path d="M12 3v18M3 12h18M12 3l-3 3M12 3l3 3M12 21l-3-3M12 21l3-3M3 12l3-3M3 12l3 3M21 12l-3-3M21 12l-3 3"/></svg>',
@@ -68,8 +67,6 @@ export function setupTextEditor({ stage, view, doc, renderer, tools, onCommit, o
   const pop = document.getElementById('textbar-pop');
 
   let session = null; // { page, item, isNew, x, y, w, wrap, edit }
-  let mathTab = 0;     // Mathe-Schreibmenü: gewählte Gruppe
-  let mathMode = null; // 'sup' | 'sub' | null: getippte Zeichen hoch-/tiefstellen
   let pendingSize = null; // Größe, die beim nächsten Tippen gelten soll (Cursor ohne Auswahl)
 
   // Im Eingabefeld zeigen wir die Farben so, wie sie auf dem Blatt aussehen
@@ -107,8 +104,6 @@ export function setupTextEditor({ stage, view, doc, renderer, tools, onCommit, o
     <button class="tb-btn" data-act="align" title="Ausrichtung">${ICON.left}</button>
     <button class="tb-btn" data-act="insertUnorderedList" title="Aufzählung">${ICON.bullet}</button>
     <button class="tb-btn" data-act="insertOrderedList" title="Nummerierung">${ICON.number}</button>
-    <span class="tb-sep"></span>
-    <button class="tb-btn tb-math" data-pop="math" title="Mathe-Zeichen (Hochstellen, Wurzel, Brüche …)"><span>∑</span></button>
     <span class="tb-sep"></span>
     <button class="tb-btn" data-act="delete" title="Textfeld löschen">${ICON.trash}</button>
     <button class="tb-done" data-act="done">${ICON.check}<span>Fertig</span></button>`;
@@ -203,8 +198,6 @@ export function setupTextEditor({ stage, view, doc, renderer, tools, onCommit, o
         <div class="tp-colors">${colors.map((c) => swatch(c, c === st.color, 'color')).join('')}
           <button class="tp-rainbow" data-custom title="Eigene Farbe">${paint('', 'rainbow')}</button></div>
         <div class="picker" hidden></div>`;
-    } else if (kind === 'math') {
-      pop.innerHTML = mathPopHTML(mathTab, mathMode);
     } else if (kind === 'highlight') {
       pop.innerHTML = `<div class="tp-title">Hintergrund</div>
         <div class="tp-colors">
@@ -234,23 +227,6 @@ export function setupTextEditor({ stage, view, doc, renderer, tools, onCommit, o
     const btn = e.target.closest('button');
     if (!btn || !session) return;
     const d = btn.dataset;
-    if (d.mkTab) {
-      mathTab = Number(d.mkTab);
-      pop.innerHTML = mathPopHTML(mathTab, mathMode);
-      return;
-    }
-    if (d.mkMode) {
-      mathMode = mathMode === d.mkMode ? null : d.mkMode;
-      pop.innerHTML = mathPopHTML(mathTab, mathMode);
-      bar.querySelector('.tb-math').classList.toggle('on', Boolean(mathMode));
-      return;
-    }
-    if (d.mk) {
-      restoreSelection();
-      document.execCommand('insertText', false, d.mk);
-      afterChange();
-      return;
-    }
     if (d.font) {
       tools.text.f = d.font;
       saveTools(tools);
@@ -382,14 +358,6 @@ export function setupTextEditor({ stage, view, doc, renderer, tools, onCommit, o
       afterChange();
     });
     edit.addEventListener('paste', onPaste);
-    // Mathe-Schreibmenü: "Hoch"/"Tief" an -> getippte Zeichen hoch-/tiefstellen
-    edit.addEventListener('beforeinput', (e) => {
-      if (!mathMode || e.inputType !== 'insertText' || !e.data) return;
-      const shifted = shift(e.data, mathMode);
-      if (shifted === e.data) return;
-      e.preventDefault();
-      document.execCommand('insertText', false, shifted);
-    });
     setupHandles(wrap);
   }
 
@@ -523,10 +491,6 @@ export function setupTextEditor({ stage, view, doc, renderer, tools, onCommit, o
     },
     open,
     finish: (o) => commit(o),
-    // Mathe-Schreibmenü aufklappen (aus dem ⋮-Menü)
-    openMath() {
-      if (session && popKind !== 'math') togglePop('math', bar.querySelector('.tb-math'));
-    },
     place,
     // Ein neues Textfeld an Seiten-Punkt (x, y) von Seite page anlegen
     // width: gewünschte Breite (gezogen), topAligned: y ist schon die Oberkante

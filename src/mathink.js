@@ -13,90 +13,7 @@
 // Lernen: Erkennt die App ein Zeichen falsch und du verbesserst es, merkt sie sich deine
 // Schreibweise als neues Muster (localStorage). So wird sie mit der Zeit immer besser.
 
-import { loadModel, run, softmaxRows } from './nn.js';
-
 const KEY = 'federleicht.mathink';
-
-// ---------- Das trainierte Zeichen-Modell (htr/math.bin) ----------
-// Ein kleines neuronales Netz, trainiert mit Ziffern und Zeichen von über 3.000 Menschen.
-// Ohne Modell (z. B. Datei fehlt) nehmen wir den einfachen $P-Erkenner von unten.
-let symModel = null;
-let symLoading = null;
-export function prepare() {
-  if (!symLoading) {
-    const base = document.baseURI.replace(/[^/]*$/, '');
-    symLoading = loadModel(`${base}htr/math.bin`)
-      .then((m) => (symModel = m))
-      .catch((err) => console.warn('Mathe-Modell fehlt', err));
-  }
-  return symLoading;
-}
-// Was die Mathe-Hilfe als Ergebnis zulässt (andere Buchstaben gibt es nur zum Verbessern)
-const ALLOWED = new Set(['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'x', '+', '(', ')', '√', '/', 'π', '<', '>', '≤', '≥', '[', ']', '%']);
-
-// Zeichen als 32x32-Bild malen: wie im Training zugeschnitten, längste Seite 26 Pixel, Mitte
-function renderSym(strokes) {
-  const S = 32;
-  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-  for (const pts of strokes) for (const [x, y] of pts) {
-    minX = Math.min(minX, x); minY = Math.min(minY, y); maxX = Math.max(maxX, x); maxY = Math.max(maxY, y);
-  }
-  const lw = 2.2;
-  const k = (26 - lw) / Math.max(1e-3, maxX - minX, maxY - minY);
-  const SS = 4;
-  const c = document.createElement('canvas');
-  c.width = c.height = S * SS;
-  const ctx = c.getContext('2d');
-  ctx.fillStyle = '#000';
-  ctx.fillRect(0, 0, c.width, c.height);
-  ctx.strokeStyle = '#fff';
-  ctx.lineWidth = lw * SS;
-  ctx.lineCap = 'round';
-  ctx.lineJoin = 'round';
-  const ox = (S - (maxX - minX) * k) / 2;
-  const oy = (S - (maxY - minY) * k) / 2;
-  for (const pts of strokes) {
-    ctx.beginPath();
-    ctx.moveTo(((pts[0][0] - minX) * k + ox) * SS, ((pts[0][1] - minY) * k + oy) * SS);
-    if (pts.length === 1) ctx.lineTo(((pts[0][0] - minX) * k + ox) * SS + 1, ((pts[0][1] - minY) * k + oy) * SS);
-    for (const [x, y] of pts) ctx.lineTo(((x - minX) * k + ox) * SS, ((y - minY) * k + oy) * SS);
-    ctx.stroke();
-  }
-  const small = document.createElement('canvas');
-  small.width = small.height = S;
-  const sctx = small.getContext('2d', { willReadFrequently: true });
-  sctx.imageSmoothingQuality = 'high';
-  sctx.drawImage(c, 0, 0, S, S);
-  const px = sctx.getImageData(0, 0, S, S).data;
-  const d = new Float32Array(S * S);
-  for (let i = 0; i < d.length; i++) d[i] = px[i * 4] / 255;
-  return { c: 1, h: S, w: S, d };
-}
-
-// -> { ranked: [[label, wahrscheinlichkeit], …], emb }
-function cnnRank(strokes) {
-  const emb = run(symModel, renderSym(strokes), 'emb');
-  const e = emb.d.slice();
-  const outL = symModel.layers.find((l) => l.name === 'out');
-  const logits = new Float32Array(outL.out);
-  const W = symModel.t['out.w'], B = symModel.t['out.b'];
-  for (let j = 0; j < outL.out; j++) {
-    let s = B[j];
-    for (let i = 0; i < e.length; i++) s += W[j * e.length + i] * e[i];
-    logits[j] = s;
-  }
-  softmaxRows(logits, 1, outL.out);
-  const syms = symModel.meta.symbols;
-  const ranked = [...logits].map((p, i) => [syms[i], p]).sort((a, b) => b[1] - a[1]);
-  return { ranked, emb: normalize(e) };
-}
-function normalize(v) {
-  let n = 0;
-  for (const x of v) n += x * x;
-  n = Math.sqrt(n) || 1;
-  return Array.from(v, (x) => x / n);
-}
-const dot = (a, b) => a.reduce((s, x, i) => s + x * b[i], 0);
 const N = 32; // Punkte pro Zeichen beim Vergleichen
 
 // ---------- Muster (in einem Kästchen 0..1, y nach unten) ----------
@@ -156,7 +73,7 @@ const BASE = {
 };
 
 // Alle Zeichen, die man beim Verbessern auswählen kann
-export const SYMBOLS = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '+', '-', '·', ':', '=', 'x', '(', ')', ',', '√', '/', 'π', '<', '>', '≤', '≥', '%', '[', ']'];
+export const SYMBOLS = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '+', '-', '·', ':', '=', 'x', '(', ')', ',', '√', '/'];
 
 // ---------- $P-Erkenner (Vatavu, Anthony, Wobbrock 2012) ----------
 function cloud(strokes) {
@@ -265,11 +182,9 @@ export function forgetLearned() {
 }
 // Ein Zeichen (seine Striche) als Muster für label merken
 export function learn(sym, label) {
-  if (!sym?.strokes?.length || (!BASE[label] && !ALLOWED.has(label))) return;
+  if (!sym?.strokes?.length || !BASE[label] || label === '√') return;
   const list = loadLearned();
-  const entry = { label, pts: cloud(sym.strokes.map(localPts)).map((p) => [+p[0].toFixed(3), +p[1].toFixed(3)]), n: sym.strokes.length };
-  if (symModel) entry.emb = cnnRank(sym.strokes.map(localPts)).emb.map((x) => +x.toFixed(3));
-  list.push(entry);
+  list.push({ label, pts: cloud(sym.strokes.map(localPts)).map((p) => [+p[0].toFixed(3), +p[1].toFixed(3)]), n: sym.strokes.length });
   // höchstens 25 pro Zeichen, die ältesten fliegen raus
   const per = list.filter((t) => t.label === label);
   if (per.length > 25) list.splice(list.indexOf(per[0]), 1);
@@ -509,21 +424,7 @@ function classify(g, h, all) {
     if (angle > 68) return set(sym, '1', ['/', '(', ')']);
     if (dx * dy < 0) return set(sym, '/', ['1', 'x']); // von unten links nach oben rechts
   }
-  let ranked;
-  if (symModel) {
-    const r = cnnRank(strokes.map(localPts));
-    ranked = r.ranked.filter(([l]) => ALLOWED.has(l)).map(([l, p]) => [l, 1 - p]);
-    // Deine eigene Schrift: sehr ähnlich zu einem Zeichen, das du schon verbessert hast?
-    let best = null;
-    for (const t of loadLearned()) {
-      if (!t.emb) continue;
-      const sim = dot(r.emb, t.emb);
-      if (sim > 0.9 && (!best || sim > best.sim)) best = { sim, label: t.label };
-    }
-    if (best) ranked = [[best.label, 0], ...ranked.filter(([l]) => l !== best.label)];
-  } else {
-    ranked = classifyCloud(strokes.map(localPts), ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '+', 'x', '(', ')', '√']);
-  }
+  const ranked = classifyCloud(strokes.map(localPts), ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '+', 'x', '(', ')', '√']);
   let label = ranked[0][0];
   // Klammern sind schmal und hoch – breite "Klammern" sind meist etwas anderes
   if ((label === '(' || label === ')') && W(b) > H(b) * 0.75) label = ranked.find((r) => r[0] !== '(' && r[0] !== ')')[0];

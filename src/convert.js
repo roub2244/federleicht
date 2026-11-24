@@ -20,7 +20,6 @@ import { ruling } from './templates.js';
 import { openDialog, progressBox, toast, esc } from './dialog.js';
 import { PAGE_WIDTH } from './view.js';
 import { fitBaseline } from './assist.js';
-import { recognizePolys } from './htr.js';
 
 const TARGET_HEIGHT = 34; // so hoch (Pixel) soll eine typische Buchstabenhöhe im Bild sein
 const PAD = 24;           // weißer Rand ums Bild (Pixel)
@@ -121,9 +120,6 @@ export function splitLines(strokes) {
 // ---------- 2. Eine Zeile als Bild malen ----------
 // Schräge Zeilen werden dabei geradegedreht – so liest die Erkennung viel besser.
 function renderLine(line) {
-  return renderPolys(linePolys(line), line.fit.h);
-}
-function linePolys(line) {
   const f = line.fit;
   const angle = Math.abs(Math.atan(f.slope)) < (25 * Math.PI) / 180 ? Math.atan(f.slope) : 0;
   const cos = Math.cos(-angle);
@@ -131,8 +127,8 @@ function linePolys(line) {
   const px = f.minX;
   const py = f.y0 + f.slope * (px - f.x0);
   const turn = ([x, y]) => [px + (x - px) * cos - (y - py) * sin, py + (x - px) * sin + (y - py) * cos];
-  // in Schreib-Reihenfolge von links nach rechts ist egal – das Bild zählt
-  return line.strokes.map((s) => s.points.map(turn));
+  const polys = line.strokes.map((s) => s.points.map(turn));
+  return renderPolys(polys, f.h);
 }
 
 // Striche (Punktlisten) schwarz auf weiß malen, Buchstabenhöhe ≈ TARGET_HEIGHT Pixel
@@ -180,26 +176,14 @@ function renderPreview(strokes) {
 }
 
 // ---------- 3. Erkennen (Zeile für Zeile) ----------
-// Zuerst mit unserem eigenen Handschrift-Modell (htr.js). Klappt das nicht (z. B. Datei
-// fehlt), nehmen wir wie früher Tesseract.
-let useTesseract = false;
 export async function recognizeLines(lines, onLine) {
+  const worker = await getWorker();
   const out = [];
   for (let i = 0; i < lines.length; i++) {
     onLine?.(i, lines.length);
-    if (!useTesseract) {
-      try {
-        const r = await recognizePolys(linePolys(lines[i]));
-        out.push(cleanLine(r.text));
-        continue;
-      } catch (err) {
-        console.warn('Handschrift-Modell geht nicht, nehme Tesseract', err);
-        useTesseract = true;
-      }
-    }
-    const worker = await getWorker();
     const { data } = await worker.recognize(renderLine(lines[i]));
-    out.push(cleanLine(data.text.replace(/\n+/g, ' ')));
+    const text = cleanLine(data.text.replace(/\n+/g, ' '));
+    out.push(text);
   }
   return out;
 }

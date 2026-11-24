@@ -6,7 +6,7 @@
 // unter die Gleichung. Falsch gelesene Zeichen antippen und verbessern – die App lernt
 // dabei deine Schrift. Man kann die Aufgabe auch einfach eintippen (Taschenrechner).
 
-import { recognize, stringify, learn, SYMBOLS, learnedCount, forgetLearned, xAsTimes, prepare } from './mathink.js';
+import { recognize, stringify, learn, SYMBOLS, learnedCount, forgetLearned, xAsTimes } from './mathink.js';
 import { solve, DEFAULT_MATH } from './mathsolve.js';
 import { createTextItem, updateTextBox, PT, SIZES_PT } from './text.js';
 import { PAGE_WIDTH } from './view.js';
@@ -49,8 +49,7 @@ export function setupMathHelp(api) {
 
   // ---------- Öffnen ----------
   // Aus Handschrift: page + Striche (aus dem Rahmen oder dem Lasso)
-  async function fromInk(page, strokes) {
-    await prepare(); // Zeichen-Modell laden (nur beim ersten Mal, dauert kurz)
+  function fromInk(page, strokes) {
     const r = recognize(strokes);
     if (!r.rows.length) {
       toast('Im Rahmen ist keine Handschrift – nochmal versuchen');
