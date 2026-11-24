@@ -237,12 +237,48 @@ export class Renderer {
 
   // Overlay setzen und SOFORT malen (wird direkt im Stift-Event aufgerufen).
   // overlay = { box: {minX, minY, maxX, maxY} in Bildschirm-Pixeln, draw(ctx) }
+  //
+  // Wichtig im Low-Latency-Modus: Das Bild geht OHNE Warten direkt auf den Bildschirm.
+  // Früher haben wir erst die Stelle gelöscht (Zwischenbild drüber) und dann den Strich neu
+  // gemalt – zeigte das Display genau dazwischen ein Bild, war der Strich kurz weg oder halb
+  // gemalt: Die Schrift flackerte und "zuckte" beim Schreiben.
+  // Jetzt bauen wir das Stück fertig in einem unsichtbaren Hilfsbild zusammen und kopieren es
+  // in EINEM Schritt auf den Bildschirm. Es gibt nur noch "vorher" oder "nachher".
   setOverlay(overlay) {
     const newBox = overlay ? this.toDeviceBox(overlay.box) : null;
     const dirty = unionBox(this.lastBox, newBox);
     this.overlay = overlay;
-    if (dirty) this.copyFromCache(dirty);
-    this.drawOverlay();
+    if (!dirty) return this.drawOverlay();
+    const w = dirty.maxX - dirty.minX;
+    const h = dirty.maxY - dirty.minY;
+    if (w <= 0 || h <= 0) return this.drawOverlay();
+    const s = this.scratchFor(w, h);
+    s.ctx.setTransform(1, 0, 0, 1, 0, 0);
+    s.ctx.drawImage(this.cache, dirty.minX, dirty.minY, w, h, 0, 0, w, h);
+    if (overlay) {
+      s.ctx.save();
+      // Wie auf dem echten Canvas malen, nur um die Ecke des Stücks verschoben
+      overlay.draw(shifted(s.ctx, dirty.minX, dirty.minY), this);
+      s.ctx.restore();
+    }
+    const ctx = this.ctx;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.drawImage(s.canvas, 0, 0, w, h, dirty.minX, dirty.minY, w, h);
+    this.lastBox = newBox;
+  }
+
+  // Hilfsbild (wächst bei Bedarf, wird nie kleiner)
+  scratchFor(w, h) {
+    if (!this.scratch) {
+      const canvas = document.createElement('canvas');
+      this.scratch = { canvas, ctx: canvas.getContext('2d', { alpha: false }) };
+    }
+    const c = this.scratch.canvas;
+    if (c.width < w || c.height < h) {
+      c.width = Math.max(c.width, w);
+      c.height = Math.max(c.height, h);
+    }
+    return this.scratch;
   }
 
   drawOverlay() {
@@ -281,6 +317,32 @@ export class Renderer {
       maxY: Math.min(this.canvas.height, Math.ceil((box.maxY + pad) * d)),
     };
   }
+}
+
+// Zeichen-Kontext, der alles um (ox, oy) echte Pixel nach links/oben verschiebt.
+// So kann der Overlay-Code ganz normal "auf den Bildschirm" malen, landet aber im Hilfsbild.
+function shifted(ctx, ox, oy) {
+  const bound = new Map();
+  return new Proxy(ctx, {
+    get(target, prop) {
+      if (prop === 'setTransform') {
+        return (a, b, c, d, e, f) => {
+          if (typeof a === 'object') target.setTransform(a.a, a.b, a.c, a.d, a.e - ox, a.f - oy);
+          else target.setTransform(a, b, c, d, e - ox, f - oy);
+        };
+      }
+      if (prop === 'resetTransform') return () => target.setTransform(1, 0, 0, 1, -ox, -oy);
+      const v = target[prop];
+      if (typeof v !== 'function') return v;
+      let fn = bound.get(prop);
+      if (!fn) bound.set(prop, (fn = v.bind(target)));
+      return fn;
+    },
+    set(target, prop, value) {
+      target[prop] = value;
+      return true;
+    },
+  });
 }
 
 // Strich beim Abspielen einer Aufnahme: ausgeblendet, blass oder erst teilweise geschrieben
