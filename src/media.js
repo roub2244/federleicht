@@ -137,7 +137,11 @@ export function imageIdsOf(pages) {
 // Alle Dateien, die diese Seiten brauchen (Bilder + Original-PDFs) – die darf das Aufräumen nicht löschen
 export function fileIdsOf(pages) {
   const ids = imageIdsOf(pages);
-  for (const p of pages) if (p.bg?.pdfId) ids.push(p.bg.pdfId);
+  for (const p of pages) {
+    if (p.bg?.pdfId) ids.push(p.bg.pdfId);
+    // Bearbeitete Bilder: das Original bleibt auch gespeichert (zum erneuten Bearbeiten)
+    for (const s of p.strokes) if (s.tool === 'image' && s.src?.blobId) ids.push(s.src.blobId);
+  }
   return [...new Set(ids)];
 }
 
@@ -189,8 +193,11 @@ export function canvasBlob(canvas, type = 'image/webp', quality = 0.9) {
 
 // ---------- Bild-Elemente ----------
 
-export function createImageItem({ blobId, iw, ih, m, z }) {
-  return updateImageBox({ tool: 'image', blobId, iw, ih, m, z, box: null });
+// src (nur bei bearbeiteten Bildern): { blobId, iw, ih, quad, rot, filter } – Original + Einstellungen (siehe imageeditor.js)
+export function createImageItem({ blobId, iw, ih, m, z, src = null }) {
+  const item = { tool: 'image', blobId, iw, ih, m, z, box: null };
+  if (src) item.src = src;
+  return updateImageBox(item);
 }
 
 // Bild der Größe (w × h Seiten-Einheiten) mit der Mitte bei (cx, cy)
@@ -273,12 +280,15 @@ export function drawImageItem(ctx, item) {
 }
 
 export function packImage(item) {
-  return { tool: 'image', blobId: item.blobId, iw: item.iw, ih: item.ih, m: item.m.slice(), z: item.z };
+  const out = { tool: 'image', blobId: item.blobId, iw: item.iw, ih: item.ih, m: item.m.slice(), z: item.z };
+  if (item.src) out.src = { ...item.src, quad: item.src.quad?.map((p) => p.slice()) };
+  return out;
 }
 
 export function reviveImage(d) {
   const m = Array.isArray(d.m) && d.m.length === 6 && d.m.every(Number.isFinite) ? d.m.slice() : [200, 0, 0, 200, 400, 600];
-  return createImageItem({ blobId: d.blobId, iw: d.iw || 1, ih: d.ih || 1, m, z: d.z || 0 });
+  const src = d.src && d.src.blobId ? { ...d.src } : null;
+  return createImageItem({ blobId: d.blobId, iw: d.iw || 1, ih: d.ih || 1, m, z: d.z || 0, src });
 }
 
 // ---------- PDF-Hintergrund ----------
