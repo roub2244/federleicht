@@ -34,7 +34,9 @@ export function setupMoreMenu(api) {
     api.closeOtherPopups();
     actions = [];
     const groups = api.sections().filter((g) => g.rows.length);
-    const hidden = api.hiddenItems();
+    // Knöpfe, die oben schon als eigener Eintrag stehen (tool: 'record' …), nicht doppelt zeigen
+    const listed = new Set(groups.flatMap((g) => g.rows.map((r) => r.tool).filter(Boolean)));
+    const hidden = api.hiddenItems().filter((h) => !listed.has(h.id));
     if (hidden.length) {
       groups.push({
         title: 'Aus der Leiste',

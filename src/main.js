@@ -39,6 +39,7 @@ import * as lock from './lock.js';
 import { setupAssist } from './assist.js';
 import { convertHandwriting } from './convert.js';
 import { setupAudio } from './audio.js';
+import { setupMathHelp, MATH_ICON } from './mathhelp.js';
 
 // ---------- Einstellungen ----------
 // Farbe, Dicke, Stiftart usw. kommen aus der Werkzeugleiste (siehe tools.js)
@@ -1631,9 +1632,10 @@ function openRecordPanel(anchor) {
 }
 recordButton.addEventListener('click', () => openRecordPanel(recordButton));
 moreEntries.push({
-  group: 'Notiz',
+  group: 'Extras',
   row: () =>
     note && {
+      tool: 'record',
       icon: MIC_ICON,
       label: audio.recording ? 'Aufnahme läuft …' : 'Sprachaufnahme',
       hint: audio.recording
@@ -1644,6 +1646,55 @@ moreEntries.push({
     },
 });
 applyRecordButton();
+
+// ---------- Mathe-Hilfe (siehe mathhelp.js, mathink.js, mathsolve.js) ----------
+const mathButton = document.getElementById('btn-math');
+const mathHelp = setupMathHelp({
+  commit: commitChanges,
+  newZ: () => nextZ++,
+  penColor: () => activeStyle(tools).color,
+  // Eingetipptes Ergebnis: in die Mitte der sichtbaren Seite
+  freeSpot() {
+    if (!note) return null;
+    const i = currentIndex();
+    const [x, y] = view.toPage(view.width / 2, view.height / 2);
+    return { page: doc.pages[i], x: Math.max(30, x - 160), y: y - doc.top(i) };
+  },
+  pickArea: () => startMath(true),
+});
+async function startMath(fromPanel = false) {
+  if (!note) return;
+  closeAllPopups();
+  const sel = lasso.selection;
+  if (sel && !fromPanel) {
+    lasso.clear();
+    return mathHelp.fromInk(sel.page, sel.items);
+  }
+  if (areaPick.active) return areaPick.cancel();
+  mathButton.classList.add('on');
+  const result = await areaPick.start({
+    title: 'Mathe-Hilfe',
+    hint: 'Ziehe mit dem Stift einen Rahmen um die Aufgabe (z. B. 3x + 5 = 20 oder 12 · 4 =)',
+    icon: MATH_ICON,
+    actions: [{ id: 'type', label: 'Eintippen' }],
+  });
+  mathButton.classList.remove('on');
+  if (!result) return;
+  if (result.action === 'type') return mathHelp.typed();
+  mathHelp.fromInk(result.page, result.items);
+}
+mathButton.addEventListener('click', () => startMath());
+moreEntries.push({
+  group: 'Extras',
+  row: () =>
+    note && {
+      tool: 'math',
+      icon: MATH_ICON,
+      label: 'Mathe-Hilfe',
+      hint: 'Aufgabe einrahmen: ausrechnen, Gleichung lösen, mit Rechenweg',
+      run: () => startMath(),
+    },
+});
 
 // Alle kleinen Menüs oben zu
 function closeAllPopups() {
@@ -2034,6 +2085,7 @@ async function leaveNote() {
   assist.reset();
   laser.clear();
   areaPick.cancel();
+  mathHelp.close();
   await audio.leave(); // läuft eine Aufnahme, wird sie jetzt gespeichert
   if (current) app.endStroke();
   if (erasing) app.endErase();
