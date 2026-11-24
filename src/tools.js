@@ -47,7 +47,7 @@ export const MAX_FAVORITES = 5;
 const MAX_RECENT = 8;
 
 const DEFAULTS = {
-  tool: 'pen',            // 'pen' | 'highlighter' | 'eraser' | 'text' | 'shape' | 'lasso'
+  tool: 'pen',            // 'pen' | 'highlighter' | 'eraser' | 'text' | 'shape' | 'lasso' | 'fill'
   penType: 'ballpoint',   // Kuli ist der Standard-Stift
   pens: {
     ballpoint: { color: '#000000', size: 1.8 },
@@ -59,6 +59,7 @@ const DEFAULTS = {
   eraser: { mode: 'stroke', size: 12, onlyHighlighter: false },
   text: { f: 'sans', s: 22.4, c: '#000000' },
   shape: { kind: 'rect', color: '#1971c2', size: 2.4, fill: 'none' }, // Formen-Werkzeug (siehe shapes.js)
+  fill: { color: '#fab005', alpha: 1 },  // Farbeimer (siehe fill.js)
   lasso: { mode: 'free', what: 'all' },  // Lasso: Freihand oder Rechteck; alles, nur Handschrift oder nur Text // Schrift für neue Textfelder (s in Seiten-Einheiten, 22,4 = 14 pt)
   straighten: true,       // gerade Linien durch Stillhalten am Strichende
   recent: [],             // zuletzt benutzte eigene Farben
@@ -80,7 +81,7 @@ export function loadTools() {
   return {
     ...DEFAULTS,
     ...saved,
-    tool: ['pen', 'highlighter', 'eraser', 'text', 'shape', 'lasso'].includes(saved.tool) ? saved.tool : DEFAULTS.tool,
+    tool: ['pen', 'highlighter', 'eraser', 'text', 'shape', 'lasso', 'fill'].includes(saved.tool) ? saved.tool : DEFAULTS.tool,
     penType: pens[saved.penType] ? saved.penType : DEFAULTS.penType,
     pens,
     highlighter: { ...DEFAULTS.highlighter, ...saved.highlighter },
@@ -88,6 +89,7 @@ export function loadTools() {
     text: { ...DEFAULTS.text, ...saved.text },
     shape: { ...DEFAULTS.shape, ...saved.shape },
     lasso: { ...DEFAULTS.lasso, ...saved.lasso },
+    fill: { ...DEFAULTS.fill, ...saved.fill },
     recent: Array.isArray(saved.recent) ? saved.recent : [],
     favorites: Array.isArray(saved.favorites) ? saved.favorites : [],
   };
@@ -111,6 +113,7 @@ export function activeStyle(tools) {
 // Das Einstellungs-Objekt zu einer Stiftart ('highlighter' oder eine aus PEN_TYPES)
 export function settingsOf(tools, type) {
   if (type === 'shape') return tools.shape;
+  if (type === 'fill') return tools.fill;
   return type === 'highlighter' ? tools.highlighter : tools.pens[type];
 }
 

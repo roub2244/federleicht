@@ -17,7 +17,7 @@ import { createColorPicker } from './colorpicker.js';
 import { paint } from './paint.js';
 import { SHAPE_KINDS, FILL_MODES, shapeFromDrag, densify, fillable } from './shapes.js';
 
-const NAMES = { highlighter: 'Textmarker', eraser: 'Radierer', shape: 'Formen', lasso: 'Lasso' };
+const NAMES = { highlighter: 'Textmarker', eraser: 'Radierer', shape: 'Formen', lasso: 'Lasso', fill: 'Füllen' };
 for (const t of PEN_TYPES) NAMES[t.id] = t.name;
 export const penName = (type) => NAMES[type] || type;
 
@@ -46,7 +46,7 @@ export function setupToolbar({ tools, onToolChange, onClear }) {
   let picker = null;
 
   // Welche Stift-Einstellungen bearbeitet das offene Popup?
-  const editType = () => (openFor === 'highlighter' ? 'highlighter' : openFor === 'shape' ? 'shape' : tools.penType);
+  const editType = () => (openFor === 'highlighter' || openFor === 'shape' || openFor === 'fill' ? openFor : tools.penType);
   const edited = () => settingsOf(tools, editType());
 
   // ---------- Werkzeug wählen ----------
@@ -66,7 +66,7 @@ export function setupToolbar({ tools, onToolChange, onClear }) {
       btn.classList.toggle('active', tool === tools.tool);
       btn.setAttribute('aria-pressed', tool === tools.tool);
       const color =
-        tool === 'pen' ? tools.pens[tools.penType].color : tool === 'highlighter' ? tools.highlighter.color : tool === 'shape' ? tools.shape.color : '';
+        tool === 'pen' ? tools.pens[tools.penType].color : tool === 'highlighter' ? tools.highlighter.color : tool === 'shape' ? tools.shape.color : tool === 'fill' ? tools.fill.color : '';
       if (color) {
         btn.style.setProperty('--swatch', color);
         btn.querySelector('.swatch canvas').dataset.c = color;
@@ -239,6 +239,17 @@ export function setupToolbar({ tools, onToolChange, onClear }) {
         <div class="picker" hidden></div>
         <p class="popup-hint">Tipp: Mit jedem Stift ungefähr zeichnen und am Ende den Stift kurz stillhalten – die Form wird von selbst perfekt.</p>`;
     }
+    if (tool === 'fill') {
+      return `${head('Füllen', false)}
+        <canvas class="preview fill-preview"></canvas>
+        <div class="seg-row"><span>Deckkraft</span><div class="seg">
+          ${FILL_ALPHAS.map((f) => `<button data-falpha="${f.value}">${f.name}</button>`).join('')}
+        </div></div>
+        <div class="color-row"></div>
+        <div class="page-dots"></div>
+        <div class="picker" hidden></div>
+        <p class="popup-hint">In eine Fläche tippen, die rundherum von Linien umschlossen ist – auch auf Fotos und PDF-Arbeitsblättern. Kleine Lücken in der Linie sind kein Problem.</p>`;
+    }
     const slots = tool === 'pen' ? PEN_TYPES : [{ id: 'highlighter', name: 'Textmarker' }];
     return `${head('', true)}
       <div class="pen-shelf ${tool === 'pen' ? '' : 'single'}">
@@ -356,6 +367,7 @@ export function setupToolbar({ tools, onToolChange, onClear }) {
     const fav = tools.favorites.some((f) => f.type === type && f.color === s.color && Math.abs(f.size - s.size) < 0.01);
     popup.querySelector('[data-star]')?.classList.toggle('on', fav);
     for (const b of popup.querySelectorAll('[data-shape]')) b.classList.toggle('selected', b.dataset.shape === tools.shape.kind);
+    for (const b of popup.querySelectorAll('[data-falpha]')) b.classList.toggle('selected', Number(b.dataset.falpha) === tools.fill.alpha);
     for (const b of popup.querySelectorAll('[data-fill]')) {
       b.classList.toggle('selected', b.dataset.fill === tools.shape.fill);
       b.disabled = !fillable(tools.shape.kind);
@@ -386,6 +398,7 @@ export function setupToolbar({ tools, onToolChange, onClear }) {
     if (picker && !fromPicker) picker.set(s.color);
 
     if (tool === 'shape') drawShapeSample(popup.querySelector('.preview'), tools.shape);
+    else if (tool === 'fill') drawFillSample(popup.querySelector('.preview'), tools.fill);
     else drawSample(popup.querySelector('.preview'), { type, ...s });
   }
 
@@ -413,7 +426,8 @@ export function setupToolbar({ tools, onToolChange, onClear }) {
       saveTools(tools);
       refresh();
     }
-    if (d.shape || d.fill || d.lmode || d.lwhat) {
+    if (d.shape || d.fill || d.lmode || d.lwhat || d.falpha) {
+      if (d.falpha) tools.fill.alpha = Number(d.falpha);
       if (d.shape) tools.shape.kind = d.shape;
       if (d.fill) tools.shape.fill = d.fill;
       if (d.lmode) tools.lasso.mode = d.lmode;
@@ -518,6 +532,47 @@ export function setupToolbar({ tools, onToolChange, onClear }) {
       if (openFor) refresh();
     },
   };
+}
+
+// Deckkraft der Füllung
+const FILL_ALPHAS = [
+  { value: 1, name: 'Deckend' },
+  { value: 0.6, name: 'Mittel' },
+  { value: 0.3, name: 'Leicht' },
+];
+
+// Vorschau Farbeimer: eine Wolke mit Rand, innen gefüllt
+function drawFillSample(canvas, { color, alpha }) {
+  const dpr = window.devicePixelRatio || 1;
+  const w = canvas.clientWidth;
+  const h = canvas.clientHeight;
+  canvas.width = Math.round(w * dpr);
+  canvas.height = Math.round(h * dpr);
+  const ctx = canvas.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, w, h);
+  const cx = w / 2;
+  const cy = h / 2;
+  const r = Math.min(w / 3.2, h * 0.36);
+  const path = new Path2D();
+  for (let i = 0; i <= 72; i++) {
+    const a = (i / 72) * Math.PI * 2;
+    const rr = r * (1 + 0.08 * Math.sin(a * 5));
+    const x = cx + Math.cos(a) * rr * 1.5;
+    const y = cy + Math.sin(a) * rr;
+    if (i) path.lineTo(x, y);
+    else path.moveTo(x, y);
+  }
+  path.closePath();
+  ctx.globalAlpha = alpha;
+  ctx.fillStyle = color;
+  ctx.fill(path);
+  ctx.globalAlpha = 1;
+  ctx.lineWidth = 2.2;
+  ctx.lineJoin = 'round';
+  ctx.strokeStyle = '#1f2430';
+  ctx.stroke(path);
 }
 
 function swatch(color, selected) {

@@ -16,6 +16,8 @@ import { getStroke } from 'perfect-freehand';
 import { drawText, transformText, recolorText } from './text.js';
 import { apply as applyMatrix, scaleOf } from './geometry.js';
 import { drawImageItem, transformImage } from './media.js';
+import { thinPoints } from './steady.js';
+import { drawFill, transformFill, fillContains } from './fill.js';
 
 // thinning:   wie stark der Druck die Dicke ändert (0 = gar nicht, 1 = sehr stark)
 // smoothing:  wie rund der Umriss wird
@@ -144,7 +146,9 @@ function taperLength(factor, size, length, share) {
 // finished: true, wenn der Stift wieder abgehoben wurde
 export function buildPath(stroke, extraPoints = [], finished = false) {
   const style = styleOf(stroke);
-  let points = extraPoints.length ? stroke.points.concat(extraPoints) : stroke.points;
+  // Viel zu dicht liegende Punkte zusammenfassen (sonst wackelt langsam Geschriebenes, siehe steady.js)
+  let points = stroke.shape ? stroke.points : thinPoints(stroke.points, Math.max(0.5, stroke.size * 0.12));
+  if (extraPoints.length) points = points.concat(extraPoints);
   let simulate = stroke.simulatePressure && style.thinning > 0;
   if (style.smoothPressure && !stroke.simulatePressure) points = smoothPressure(points, style.smoothPressure);
   if (style.nib) {
@@ -212,6 +216,7 @@ function polygonPath(points) {
 export function transformStroke(stroke, m) {
   if (stroke.tool === 'text') return transformText(stroke, m);
   if (stroke.tool === 'image') return transformImage(stroke, m);
+  if (stroke.tool === 'fill') return transformFill(stroke, m);
   const k = scaleOf(m);
   const copy = {
     ...stroke,
@@ -231,6 +236,7 @@ export function transformStroke(stroke, m) {
 export function recolorStroke(stroke, color) {
   if (stroke.tool === 'text') return recolorText(stroke, color);
   if (stroke.tool === 'image') return { ...stroke }; // Bilder behalten ihre Farben
+  if (stroke.tool === 'fill') return { ...stroke, color };
   const copy = { ...stroke, color, layers: null, box: null };
   if (copy.fill) copy.fill = color;
   return finishStroke(copy);
@@ -307,6 +313,7 @@ export function fillStroke(ctx, stroke, built = stroke) {
   // Textfelder liegen mit in der Liste der Striche, malen sich aber selbst (siehe text.js)
   if (stroke.tool === 'text') return drawText(ctx, stroke);
   if (stroke.tool === 'image') return drawImageItem(ctx, stroke);
+  if (stroke.tool === 'fill') return drawFill(ctx, stroke, displayColor(stroke.color));
   // Frisch geladene Striche bekommen ihre Form erst, wenn sie zum ersten Mal zu sehen sind
   if (!built.layers && built === stroke && stroke.points.length) finishStroke(stroke);
   if (!built.layers) return;
@@ -375,6 +382,8 @@ function distanceToSegment(px, py, a, b) {
 export function strokeHit(stroke, x, y, r) {
   // Text und Bilder radiert man nicht weg, man löscht sie mit dem Lasso
   if (stroke.tool === 'text' || stroke.tool === 'image') return false;
+  // Füllungen: getroffen, wenn der Radierer mitten in der Fläche ist
+  if (stroke.tool === 'fill') return fillContains(stroke, x, y);
   const b = stroke.box;
   if (!b) return false;
   // Schneller Vortest: liegt der Kreis überhaupt in der Nähe?
@@ -412,6 +421,7 @@ function densify(points, step) {
 // (leere Liste = alles weg) oder null, wenn der Kreis den Strich gar nicht berührt.
 export function cutStroke(stroke, x, y, r) {
   if (stroke.tool === 'text' || stroke.tool === 'image') return null;
+  if (stroke.tool === 'fill') return fillContains(stroke, x, y) ? [] : null; // Füllung ganz weg
   // Runde Enden ragen eine halbe Dicke über den letzten Punkt hinaus
   const reach = r + (styleOf(stroke).cap ? stroke.size / 2 : 0);
   const step = Math.max(0.5, Math.min(r, stroke.size) / 3);

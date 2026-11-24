@@ -12,6 +12,7 @@ import { Debug } from './debug.js';
 import { HoldDetector, averagePressure, longEnough } from './straighten.js';
 import { History } from './history.js';
 import { LiftTracker } from './lift.js';
+import { Steadier } from './steady.js';
 import { setupTextEditor } from './texteditor.js';
 import { loadFonts, onFontsChanged, updateTextBox } from './text.js';
 import { loadTools, saveTools, activeStyle, settingsOf } from './tools.js';
@@ -22,10 +23,12 @@ import { setupHome } from './home.js';
 import { askText, toast, progressBox, chooseAction } from './dialog.js';
 import { setupLasso } from './lasso.js';
 import { recognizeShape, shapeFromDrag, densify, transformShape, FILL_MODES, fillable } from './shapes.js';
-import { prepareImage, createImageItem, placeMatrix, remember, onMediaLoaded, ensureLoaded, imageIdsOf, fileIdsOf, mediaSettings, pageDark } from './media.js';
+import { prepareImage, createImageItem, placeMatrix, remember, canvasBlob, onMediaLoaded, ensureLoaded, imageIdsOf, fileIdsOf, mediaSettings, pageDark } from './media.js';
 import { importPdf, scheduleSharp } from './pdfdoc.js';
 import { exportPdf, exportImage, fileName, canShareFile, shareFile, downloadFile } from './export.js';
 import { setupMediaMenu } from './mediamenu.js';
+import { computeFill, createFill } from './fill.js';
+import { openImageEditor } from './imageeditor.js';
 
 // ---------- Einstellungen ----------
 // Farbe, Dicke, Stiftart usw. kommen aus der Werkzeugleiste (siehe tools.js)
@@ -71,6 +74,8 @@ const hold = new HoldDetector(straightenCurrentStroke);
 const lift = new LiftTracker();
 let liftedPointer = null; // nach erkanntem Abheben: Stift liegt noch leicht auf ('pen'), sonst null
 const MIN_INK_PRESSURE = 0.04;
+// Glättet langsame Bewegungen, damit die Linie nicht zittert (siehe steady.js)
+const steady = new Steadier();
 
 // ---------- Was die App tun kann ----------
 // input.js ruft diese Funktionen auf, je nachdem was Stift und Finger machen.
@@ -94,6 +99,12 @@ const app = {
     currentPage = doc.pages[index];
     currentTop = doc.top(index);
     if (tools.tool === 'shape') return beginShapeDrag(toLocal(point));
+    if (tools.tool === 'fill') {
+      // Farbeimer: Antippen füllt, der Rest dieser Berührung wird ignoriert
+      swallowPen = true;
+      fillAt(currentPage, toLocal(point));
+      return;
+    }
     beginStroke(toLocal(point), pointerType);
   },
 
@@ -126,11 +137,15 @@ const app = {
     }
 
     if (current.simulatePressure) {
-      current.points.push(...points);
+      for (const raw of points) {
+        const p = steady.add(raw, view.scale);
+        if (p) current.points.push(p);
+      }
     } else {
       // Echter Stift: jeden Punkt auf "eigentlich schon abgehoben" prüfen (siehe lift.js)
       for (let k = 0; k < points.length; k++) {
-        const p = points[k];
+        const p = steady.add(points[k], view.scale);
+        if (!p) continue; // noch zu nah am letzten Punkt (langsames Schreiben)
         current.points.push(inkPoint(p));
         const verdict = lift.add(p, current.points.length - 1, view.scale);
         if (verdict?.trimStart) {
@@ -149,7 +164,7 @@ const app = {
       }
     }
     if (tools.straighten) hold.moved(last, view.scale);
-    drawCurrentStroke(predicted);
+    drawCurrentStroke(steady.predicted(predicted, view.scale));
   },
 
   endStroke() {
@@ -160,6 +175,17 @@ const app = {
     }
     if (tools.tool === 'lasso') return lasso.penUp();
     if (shapeDrag) return finishShapeDrag();
+    if (current && !current.straight) {
+      // Der Strich endet genau dort, wo der Stift war (die Glättung hängt minimal hinterher)
+      const end = steady.finish(view.scale);
+      if (end) {
+        if (current.simulatePressure) current.points.push(end);
+        else {
+          current.points.push(inkPoint(end));
+          lift.add(end, current.points.length - 1, view.scale);
+        }
+      }
+    }
     if (current && !current.simulatePressure && !current.straight) {
       // Leichte Punkte ganz am Ende (beim Abheben) weglassen -> kein Haken
       current.points.length = Math.max(1, lift.keepAtEnd(current.points.length));
@@ -311,6 +337,7 @@ function beginStroke(point, pointerType) {
     z: nextZ++,
   });
   lift.reset();
+  steady.reset(point);
   current.points.push(inkPoint(point));
   if (!current.simulatePressure) lift.add(point, 0, view.scale);
   if (tools.straighten) hold.moved(point, view.scale);
@@ -480,6 +507,50 @@ function finishShapeDrag() {
   markDirty([currentPage]);
 }
 
+// ---------- Farbeimer (siehe fill.js) ----------
+function fillAt(page, [x, y]) {
+  if (!doc.pages.includes(page)) return;
+  let result;
+  try {
+    result = computeFill(page, x, y, view.scale);
+  } catch (err) {
+    console.warn('Füllen fehlgeschlagen', err);
+    toast('Füllen hat nicht geklappt');
+    return;
+  }
+  if (result.error === 'outside') return;
+  if (result.error) {
+    toast('Tippe in eine Fläche, nicht auf eine Linie');
+    return;
+  }
+  const { color, alpha } = tools.fill;
+  // Liegt hier schon eine Füllung derselben Fläche? Dann wird sie ersetzt (neue Farbe)
+  const fresh = createFill({ color, alpha, rings: result.rings, z: 0 });
+  const b = fresh.box;
+  const same = (s) =>
+    s.tool === 'fill' && s.box && fillContainsPoint(s, x, y) &&
+    Math.abs(s.box.minX - b.minX) < 4 && Math.abs(s.box.maxX - b.maxX) < 4 && Math.abs(s.box.minY - b.minY) < 4 && Math.abs(s.box.maxY - b.maxY) < 4;
+  const removed = page.strokes.filter(same);
+  // Reihenfolge: UNTER die Striche, die die Fläche umgeben, aber über Bilder und ältere Füllungen
+  const overlaps = (s) => s.box && s.box.maxX >= b.minX && s.box.minX <= b.maxX && s.box.maxY >= b.minY && s.box.minY <= b.maxY;
+  const near = page.strokes.filter((s) => overlaps(s) && !removed.includes(s));
+  const inkZ = near.filter((s) => s.tool !== 'fill' && s.tool !== 'image').map((s) => s.z);
+  const lowZ = near.filter((s) => s.tool === 'fill' || s.tool === 'image').map((s) => s.z);
+  if (!inkZ.length) fresh.z = nextZ++;
+  else {
+    const top = Math.min(...inkZ);
+    const below = lowZ.filter((z) => z < top);
+    fresh.z = below.length ? (Math.max(...below) + top) / 2 : top - 0.5;
+  }
+  commitChanges([{ page, added: [fresh], removed }]);
+  navigator.vibrate?.(6);
+  if (result.whole) toast('Die Fläche war nicht geschlossen – fast die ganze Seite wurde gefüllt', { label: 'Rückgängig', run: undo });
+}
+
+function fillContainsPoint(s, x, y) {
+  return strokeHit(s, x, y, 0);
+}
+
 // Änderungen vom Lasso übernehmen: Striche ersetzen, als EIN Schritt rückgängig machbar, speichern
 function commitChanges(changes) {
   for (const c of changes) {
@@ -499,6 +570,10 @@ function eraseAt(x, y) {
   const r = tools.eraser.size / view.scale; // Bildschirm-Pixel -> Seiten-Einheiten
   let area = null; // Bereich, in dem sich etwas geändert hat (Dokument-Koordinaten)
   const [first, last] = doc.range(y - r, y + r);
+  // Erst Striche, Texte usw. – eine Füllung nur, wenn an dieser Stelle sonst nichts ist
+  // (sonst wäre beim Radieren einer Linie in einer bunten Fläche gleich die ganze Farbe weg)
+  for (const fillPass of [false, true]) {
+  if (fillPass && area) break;
   for (let p = first; p <= last; p++) {
     const page = doc.pages[p];
     const top = doc.top(p);
@@ -508,6 +583,7 @@ function eraseAt(x, y) {
     for (let i = strokes.length - 1; i >= 0; i--) {
       const stroke = strokes[i];
       if (tools.eraser.onlyHighlighter && stroke.tool !== 'highlighter') continue;
+      if ((stroke.tool === 'fill') !== fillPass) continue;
       if (!strokeHit(stroke, x, ly, r)) continue;
 
       let pieces = [];
@@ -520,6 +596,7 @@ function eraseAt(x, y) {
       strokes.splice(i, 1, ...pieces); // Strich durch seine Reststücke ersetzen (gleiche Stelle = gleiches z)
       noteErased(page, stroke, pieces);
     }
+  }
   }
   // Sofort nur diesen Bereich neu malen (nicht erst beim nächsten Bild alles)
   if (area) renderer.redrawArea(area);
@@ -794,6 +871,7 @@ lasso = setupLasso({
   newZ: () => nextZ++,
   currentIndex,
   toast,
+  onEditImage: editImage,
 });
 
 
@@ -876,6 +954,51 @@ async function insertImages(files, at = null) {
   renderer.renderNow();
   lasso.select(page, added); // gleich ausgewählt: verschieben, größer/kleiner, drehen
   toast(added.length === 1 ? 'Bild eingefügt – ziehen zum Verschieben, Ecken für die Größe' : `${added.length} Bilder eingefügt`);
+}
+
+// Bild bearbeiten (zuschneiden, drehen, geraderücken, Filter – siehe imageeditor.js)
+function editImage(page, item) {
+  textEditor.finish();
+  openImageEditor({
+    item,
+    toast,
+    async onDone({ canvas, src, reset, center }) {
+      if (!doc.pages.includes(page) || !page.strokes.includes(item)) return;
+      let blobId = src.blobId;
+      let w = src.iw;
+      let h = src.ih;
+      if (!reset) {
+        const blob = await canvasBlob(canvas, 'image/webp', 0.9);
+        blobId = store.uid();
+        await store.putBlob(blobId, blob);
+        w = canvas.width;
+        h = canvas.height;
+        remember(blobId, window.createImageBitmap ? await createImageBitmap(canvas) : canvas);
+      }
+      canvas.width = canvas.height = 0;
+      // Größe: gleicher Maßstab wie bisher (Seiten-Einheiten pro Bildpunkt), Drehung bleibt
+      const m = item.m;
+      const lenX = Math.hypot(m[0], m[1]);
+      const lenY = Math.hypot(m[2], m[3]);
+      const ex = [m[0] / lenX, m[1] / lenX];
+      const ey = [m[2] / lenY, m[3] / lenY];
+      const k = lenX / item.iw;
+      // Mitte: beim ersten Bearbeiten dort, wo der Ausschnitt im alten Bild lag, sonst die alte Mitte
+      const c = item.src || reset ? [m[4] + (m[0] + m[2]) / 2, m[5] + (m[1] + m[3]) / 2] : [m[4] + m[0] * center[0] + m[2] * center[1], m[5] + m[1] * center[0] + m[3] * center[1]];
+      let pw = w * k;
+      let ph = h * k;
+      // Nicht größer als die Seite
+      const fit = Math.min(1, (PAGE_WIDTH * 0.95) / pw, (PAGE_HEIGHT * 0.95) / ph);
+      pw *= fit;
+      ph *= fit;
+      const nm = [ex[0] * pw, ex[1] * pw, ey[0] * ph, ey[1] * ph, c[0] - (ex[0] * pw + ey[0] * ph) / 2, c[1] - (ex[1] * pw + ey[1] * ph) / 2];
+      const fresh = createImageItem({ blobId, iw: w, ih: h, m: nm, z: item.z, src: reset ? null : src });
+      commitChanges([{ page, added: [fresh], removed: [item] }]);
+      renderer.renderNow();
+      lasso.select(page, [fresh]);
+      toast(reset ? 'Bild zurückgesetzt' : 'Bild bearbeitet');
+    },
+  });
 }
 
 // PDF einlesen: Fortschritt zeigen, Hintergründe zurückgeben (oder null)
@@ -1122,6 +1245,7 @@ const wheel = setupWheel({
     } else if (act === 'color') {
       // Farbe gilt für den aktuellen Stift. War der Radierer an, geht's zurück zum Stift.
       if (tools.tool === 'shape') tools.shape.color = id;
+      else if (tools.tool === 'fill') tools.fill.color = id;
       else {
         if (!['pen', 'highlighter'].includes(tools.tool)) toolbar.setTool(toolBeforeEraser === 'highlighter' ? 'highlighter' : 'pen');
         settingsOf(tools, activeStyle(tools).type).color = id;
