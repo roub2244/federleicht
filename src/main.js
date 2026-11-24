@@ -1695,6 +1695,23 @@ moreEntries.push({
       run: () => startMath(),
     },
 });
+// Mathe-Zeichen tippen: neues Textfeld in der Mitte + Mathe-Schreibmenü (siehe mathkeys.js)
+const MATHKEYS_ICON = '<svg viewBox="0 0 24 24"><path d="M17 5H7l6 7-6 7h10"/></svg>';
+moreEntries.push({
+  group: 'Extras',
+  row: () =>
+    note && {
+      icon: MATHKEYS_ICON,
+      label: 'Mathe-Zeichen tippen',
+      hint: 'x², √, ≤, π, ℝ, α … – auch im Text-Werkzeug über den ∑-Knopf',
+      run() {
+        const i = currentIndex();
+        const [x, y] = view.toPage(view.width / 2, view.height * 0.4);
+        textEditor.create(doc.pages[i], Math.max(30, x - 200), y - doc.top(i), nextZ++);
+        setTimeout(() => textEditor.openMath(), 60);
+      },
+    },
+});
 
 // Alle kleinen Menüs oben zu
 function closeAllPopups() {
