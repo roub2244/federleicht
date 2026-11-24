@@ -80,11 +80,41 @@ function pdfjsAssetsPlugin() {
   };
 }
 
+// Texterkennung für "Handschrift zu Text" (Tesseract, siehe src/convert.js).
+// Drei Dateien kommen als Ordner "ocr/" mit in die App, damit es offline geht:
+//   worker.min.js                     – das Hilfsprogramm, das im Hintergrund rechnet
+//   tesseract-core-simd-lstm.wasm.js  – die eigentliche Erkennung (WebAssembly)
+//   deu.traineddata.gz                – das deutsche Sprachmodell (mit Wörterbuch)
+const OCR_FILES = {
+  'worker.min.js': 'node_modules/tesseract.js/dist/worker.min.js',
+  'tesseract-core-simd-lstm.wasm.js': 'node_modules/tesseract.js-core/tesseract-core-simd-lstm.wasm.js',
+  'deu.traineddata.gz': 'node_modules/@tesseract.js-data/deu/4.0.0_best_int/deu.traineddata.gz',
+};
+
+function ocrAssetsPlugin() {
+  return {
+    name: 'federleicht-ocr-assets',
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        const m = /\/ocr\/([\w.-]+)$/.exec((req.url || '').split('?')[0]);
+        if (!m || !OCR_FILES[m[1]]) return next();
+        res.setHeader('Content-Type', m[1].endsWith('.js') ? 'text/javascript' : 'application/octet-stream');
+        res.end(readFileSync(resolve(OCR_FILES[m[1]])));
+      });
+    },
+    generateBundle() {
+      for (const [name, src] of Object.entries(OCR_FILES)) {
+        this.emitFile({ type: 'asset', fileName: `ocr/${name}`, source: readFileSync(resolve(src)) });
+      }
+    },
+  };
+}
+
 export default defineConfig({
   // "./" = relative Pfade. Dadurch läuft die App auch in einem Unterordner,
   // z. B. später auf GitHub Pages unter https://name.github.io/federleicht/
   base: './',
-  plugins: [pdfjsAssetsPlugin(), serviceWorkerPlugin()],
+  plugins: [pdfjsAssetsPlugin(), ocrAssetsPlugin(), serviceWorkerPlugin()],
   // pdf.js ist groß, wird aber erst geladen, wenn eine PDF geöffnet wird -> Warnung erst ab 1,5 MB
   build: { chunkSizeWarningLimit: 1500 },
 });

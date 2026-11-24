@@ -291,3 +291,15 @@ export function drawThumbnail(canvas, tpl, { dark = false, crop = 1, faint = fal
   ctx.globalAlpha = 1;
   if (fill) for (const stroke of strokes) fill(ctx, stroke);
 }
+
+// Die Schreiblinien einer linierten Vorlage (für Handschrifthilfe und "Handschrift zu Text"):
+// { y0: erste Linie, step: Abstand, y1: letzte Linie } in Seiten-Einheiten – oder null,
+// wenn die Vorlage keine Schreiblinien hat (leer, kariert, gepunktet …).
+export function ruling(tpl) {
+  const kind = tpl?.kind;
+  if (!['lined', 'college', 'cornell'].includes(kind)) return null;
+  const step = (SPACING[kind]?.[tpl.spacing] ?? SPACING[kind].M) * MM;
+  if (kind === 'lined') return { y0: 22 * MM, step, y1: PAGE_HEIGHT - 10 * MM };
+  if (kind === 'college') return { y0: 16 * MM + step, step, y1: PAGE_HEIGHT - 10 * MM };
+  return { y0: 22 * MM + step, step, y1: PAGE_HEIGHT - 52 * MM - step * 0.5 };
+}

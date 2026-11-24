@@ -3977,3 +3977,79 @@ body {
   font-size: 13px;
   color: var(--muted);
 }
+
+/* ---------- Handschrifthilfe (assist.js) ---------- */
+.assist-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 2;
+}
+/* Knöpfe in der Werkzeugleiste, die kein Werkzeug sind (an/aus bzw. Aktion) */
+.aux-btn.on {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+/* ---------- Handschrift zu Text (convert.js) ---------- */
+.dlg.wide {
+  width: 580px;
+}
+.cv-ink {
+  max-height: 160px;
+  overflow: auto;
+  border-radius: 14px;
+  border: 1.5px solid var(--line);
+  background: #ffffff;
+}
+.cv-preview {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+.cv-label {
+  display: block;
+  margin: 14px 2px 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+}
+.cv-text {
+  width: 100%;
+  min-height: 120px;
+  max-height: 34vh;
+  padding: 12px 14px;
+  border: 1.5px solid var(--line);
+  border-radius: 14px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 17px;
+  line-height: 1.45;
+  resize: vertical;
+  outline: none;
+}
+.cv-text:focus {
+  border-color: var(--accent);
+}
+.cv-fonts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.cv-font {
+  padding: 8px 14px;
+  border: 1.5px solid var(--line);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text);
+  font-size: 16px;
+}
+.cv-font.on {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.cv-switch {
+  margin-top: 12px;
+}

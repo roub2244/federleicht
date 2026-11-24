@@ -11,7 +11,11 @@ import { paint } from './paint.js';
 const esc = (t) => String(t ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
 
 // Grundgerüst: Hintergrund + Karte. build(card) füllt die Karte, result(card) liest die Antwort.
-function open({ html, onReady, result, wide = false }) {
+export function openDialog(options) {
+  return open(options);
+}
+
+function open({ html, onReady, result, wide = false, enter = true }) {
   return new Promise((resolve) => {
     const back = document.createElement('div');
     back.className = 'dlg-back';
@@ -30,7 +34,7 @@ function open({ html, onReady, result, wide = false }) {
         e.preventDefault();
         e.stopPropagation();
         close(null);
-      } else if (e.key === 'Enter' && !e.shiftKey) {
+      } else if (e.key === 'Enter' && !e.shiftKey && enter) {
         e.preventDefault();
         e.stopPropagation();
         const v = result(card);

@@ -74,6 +74,7 @@ const DEFAULTS = {
   laser: { color: '#ff2d55', size: 7, mode: 'trail', duration: 1.5 }, // Laserpointer (siehe laser.js): 'trail' = Spur, 'dot' = nur Punkt
   lasso: { mode: 'free', what: 'all' },  // Lasso: Freihand oder Rechteck; alles, nur Handschrift oder nur Text // Schrift für neue Textfelder (s in Seiten-Einheiten, 22,4 = 14 pt)
   straighten: true,       // gerade Linien durch Stillhalten am Strichende
+  assist: false,          // Handschrifthilfe: Zeilen geraderücken, Hilfslinie (siehe assist.js)
   recent: [],             // zuletzt benutzte eigene Farben
   favorites: [],          // Lieblingsstifte: { type, color, size, opacity? }
 };

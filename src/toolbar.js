@@ -37,7 +37,7 @@ const ICON = {
 };
 
 export function setupToolbar({ tools, onToolChange, onClear }) {
-  const buttons = [...document.querySelectorAll('.tool-btn')];
+  const buttons = [...document.querySelectorAll('.tool-btn[data-tool]')];
   const favBar = document.getElementById('favorites');
   const popup = document.getElementById('popup');
   let openFor = null;  // für welches Werkzeug ist das Popup gerade offen?

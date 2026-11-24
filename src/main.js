@@ -32,6 +32,8 @@ import { computeFill, createFill } from './fill.js';
 import { openImageEditor } from './imageeditor.js';
 import { setupLaser } from './laser.js';
 import { setupToolbarConfig } from './toolbarconfig.js';
+import { setupAssist } from './assist.js';
+import { convertHandwriting } from './convert.js';
 
 // ---------- Einstellungen ----------
 // Farbe, Dicke, Stiftart usw. kommen aus der Werkzeugleiste (siehe tools.js)
@@ -65,6 +67,7 @@ let shapeDrag = null;    // Formen-Werkzeug: Form wird gerade aufgezogen { start
 let swallowPen = false;  // dieser Stift-Strich hebt nur eine Auswahl auf (z. B. ein eingefügtes Bild) – nichts malen
 let mediaMenu = null;    // Menüs "Einfügen" und "Teilen" (siehe mediamenu.js)
 let claudeMenu = null;   // Claude-Knopf (siehe claudemenu.js)
+let assist = null;       // Handschrifthilfe (siehe assist.js), wird weiter unten eingerichtet
 let lasering = false;    // Laserpointer: Stift liegt gerade auf (siehe laser.js)
 
 // Rückgängig/Wiederholen: bei jeder Änderung die Knöpfe an- oder ausgrauen
@@ -357,6 +360,7 @@ function beginStroke(point, pointerType) {
     simulatePressure: pointerType !== 'pen',
     z: nextZ++,
   });
+  assist?.strokeStarted(currentPage, point);
   lift.reset();
   steady.reset(point);
   current.points.push(inkPoint(point));
@@ -377,6 +381,7 @@ function finishCurrentStroke() {
     history.push({ strokes: [{ page: currentPage, added: [current], removed: [] }] });
     pages.strokesChanged();
     markDirty([currentPage]);
+    assist?.strokeAdded(currentPage, current);
   } else {
     renderer.setOverlay(null);
   }
@@ -675,6 +680,7 @@ function undo() {
   if (textEditor?.active) return textEditor.undo(); // beim Tippen: Tippen rückgängig
   if (current || erasing || shapeDrag) return; // nicht mitten im Schreiben
   lasso.clear();
+  assist.reset(); // nach Rückgängig nichts mehr automatisch geraderücken
   const action = history.undo();
   if (action) applyAction(action, false);
 }
@@ -826,6 +832,7 @@ function afterViewChange() {
   textEditor?.place();
   lasso?.place();
   laser.redraw();
+  assist?.redraw();
   zoomButton.textContent = `${Math.round((view.scale / view.fitScale) * 100)} %`;
   pages?.onViewChange();
   scheduleSession();
@@ -894,6 +901,7 @@ lasso = setupLasso({
   currentIndex,
   toast,
   onEditImage: editImage,
+  onConvert: (page, items) => convertInk(page, items),
 });
 
 
@@ -1214,6 +1222,7 @@ const toolbar = setupToolbar({
     if (tool !== 'text') textEditor.finish();
     if (tool !== 'lasso') lasso.clear();
     if (tool !== 'eraser') toolBeforeEraser = tool;
+    assist.finish();
     input.setStickyEraser(tool === 'eraser');
   },
   // "Seite leeren" leert die Seite, die gerade in der Mitte zu sehen ist
@@ -1304,6 +1313,49 @@ const wheel = setupWheel({
     saveTools(tools);
     toolbar.update();
   },
+});
+
+// ---------- Handschrifthilfe und Handschrift zu Text (siehe assist.js und convert.js) ----------
+assist = setupAssist({
+  stage,
+  view,
+  doc,
+  renderer,
+  commit: commitChanges,
+  isOn: () => tools.assist,
+});
+const assistButton = document.getElementById('btn-assist');
+function applyAssistButton() {
+  assistButton.classList.toggle('on', tools.assist);
+  assistButton.setAttribute('aria-pressed', String(tools.assist));
+}
+assistButton.addEventListener('click', () => {
+  tools.assist = !tools.assist;
+  saveTools(tools);
+  if (!tools.assist) assist.reset();
+  applyAssistButton();
+  toast(tools.assist ? 'Handschrifthilfe an: Zeilen werden nach dem Schreiben geradegerückt' : 'Handschrifthilfe aus');
+});
+applyAssistButton();
+
+// Handschrift in Text umwandeln: die Lasso-Auswahl, sonst alles auf der Seite in der Mitte
+async function convertInk(page, strokes) {
+  toolbar.closePopup();
+  const items = await convertHandwriting({ page, strokes, commit: commitChanges, newZ: () => nextZ++ });
+  if (items?.length) {
+    toast('In Text umgewandelt – antippen mit dem Text-Werkzeug zum Bearbeiten', { label: 'Rückgängig', run: undo });
+  }
+}
+document.getElementById('btn-convert').addEventListener('click', () => {
+  const sel = lasso.selection;
+  if (sel) {
+    lasso.clear();
+    return convertInk(sel.page, sel.items);
+  }
+  const page = doc.pages[currentIndex()];
+  const ink = page.strokes.filter((s) => s.tool === 'pen' && !s.shape);
+  if (!ink.length) return toast('Hier ist keine Handschrift – erst schreiben oder mit dem Lasso auswählen');
+  convertInk(page, ink);
 });
 
 // ---------- Werkzeugleiste anpassen (siehe toolbarconfig.js) ----------
@@ -1676,6 +1728,8 @@ async function leaveNote() {
   if (!note) return;
   textEditor.finish();
   lasso.clear();
+  assist.reset();
+  laser.clear();
   if (current) app.endStroke();
   if (erasing) app.endErase();
   const leaving = note;
@@ -1766,4 +1820,4 @@ function saveJSON(key, value) {
 }
 
 // Nur beim Entwickeln: von der Browser-Konsole aus hineinschauen können
-if (import.meta.env.DEV) window.federleicht = { doc, tools, view, history };
+if (import.meta.env.DEV) window.federleicht = { doc, tools, view, history, renderer, commitChanges, newZ: () => nextZ++ };

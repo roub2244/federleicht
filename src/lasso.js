@@ -36,6 +36,7 @@ const PASTE_OFFSET = 24;   // Duplikate und Einfügungen landen etwas versetzt
 const PALM_SIZE = 45;      // so große Berührungen sind der Handballen
 
 const ICON = {
+  totext: '<svg viewBox="0 0 24 24"><path d="M3.5 12.5c1.6-3.4 3.2-3.4 4.2-1s2.4 2.6 4-1"/><path d="M14.5 7h6M17.5 7v9.5"/><path d="m6 16.5 2.5 2.5L13 14.5" stroke-width="1.6"/></svg>',
   cut: '<svg viewBox="0 0 24 24"><circle cx="6.5" cy="17.5" r="2.8"/><circle cx="17.5" cy="17.5" r="2.8"/><path d="M8.6 15.6 18 4M15.4 15.6 6 4"/></svg>',
   copy: '<svg viewBox="0 0 24 24"><rect x="8.5" y="8.5" width="11" height="11" rx="2.2"/><path d="M15.5 8.5V6.7a2.2 2.2 0 0 0-2.2-2.2H6.7a2.2 2.2 0 0 0-2.2 2.2v6.6a2.2 2.2 0 0 0 2.2 2.2h1.8"/></svg>',
   paste: '<svg viewBox="0 0 24 24"><path d="M9 4.5h6v2.5H9z"/><path d="M15 5.5h1.8A2.2 2.2 0 0 1 19 7.7v11.1a2.2 2.2 0 0 1-2.2 2.2H7.2A2.2 2.2 0 0 1 5 18.8V7.7a2.2 2.2 0 0 1 2.2-2.2H9"/></svg>',
@@ -48,7 +49,7 @@ const ICON = {
   rotate: '<svg viewBox="0 0 24 24"><path d="M19 12a7 7 0 1 1-2.1-5"/><path d="M17.5 3.5v4h-4"/></svg>',
 };
 
-export function setupLasso({ stage, view, doc, renderer, tools, commit, newZ, currentIndex, toast, onEditImage }) {
+export function setupLasso({ stage, view, doc, renderer, tools, commit, newZ, currentIndex, toast, onEditImage, onConvert }) {
   // ---------- Bausteine auf dem Bildschirm ----------
   const layer = document.createElement('div');
   layer.className = 'sel-layer';
@@ -71,6 +72,7 @@ export function setupLasso({ stage, view, doc, renderer, tools, commit, newZ, cu
   bar.hidden = true;
   bar.innerHTML = [
     ['crop', 'Bearbeiten'],
+    ['totext', 'Zu Text'],
     ['cut', 'Ausschneiden'],
     ['copy', 'Kopieren'],
     ['duplicate', 'Duplizieren'],
@@ -301,6 +303,8 @@ export function setupLasso({ stage, view, doc, renderer, tools, commit, newZ, cu
     bar.hidden = Boolean(drag);
     // "Bearbeiten" (zuschneiden, geraderücken) gibt es nur für ein einzelnes Bild
     bar.querySelector('[data-act="crop"]').hidden = !(sel.items.length === 1 && sel.items[0].tool === 'image');
+    // "Zu Text" (Handschrift umwandeln) nur, wenn Handschrift dabei ist
+    bar.querySelector('[data-act="totext"]').hidden = !sel.items.some((it) => it.tool === 'pen' && !it.shape);
     if (!drag) placeBar(f, index);
   }
 
@@ -519,6 +523,13 @@ export function setupLasso({ stage, view, doc, renderer, tools, commit, newZ, cu
 
   function run(act) {
     if (!sel) return;
+    if (act === 'totext') {
+      const page = sel.page;
+      const items = sel.items.filter((it) => it.tool === 'pen' && !it.shape);
+      clear();
+      onConvert?.(page, items);
+      return;
+    }
     if (act === 'crop') {
       const page = sel.page;
       const item = sel.items[0];
@@ -700,6 +711,10 @@ export function setupLasso({ stage, view, doc, renderer, tools, commit, newZ, cu
     },
     get drawing() {
       return Boolean(drawing);
+    },
+    // Die aktuelle Auswahl ({ page, items }) oder null
+    get selection() {
+      return sel ? { page: sel.page, items: [...sel.items] } : null;
     },
     get hasClipboard() {
       return Boolean(clipboard);
