@@ -159,9 +159,9 @@ export function canShareFile(file) {
 }
 
 // Über das Teilen-Menü von Android (WhatsApp, Mail, Drive, Classroom …)
-export async function shareFile(file, title) {
+export async function shareFile(file, title, text = '') {
   try {
-    await navigator.share({ files: [file], title });
+    await navigator.share(text ? { files: [file], title, text } : { files: [file], title });
     return true;
   } catch (err) {
     if (err?.name === 'AbortError') return true; // selbst abgebrochen
