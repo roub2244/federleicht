@@ -15,15 +15,19 @@
 
 // So weit (Bildschirm-Pixel) darf der Stift mit ganz leichtem Druck rutschen,
 // bevor wir sagen: "Der ist abgesetzt."
-// Wichtig: Schwelle und Strecke sind bewusst klein/vorsichtig. Schnelle, leichte Aufstriche
+// Wichtig (Robins Video, 24.11.): Wer schnell schreibt, setzt Striche oft mit ganz wenig Druck
+// an und hebt sie mit ganz wenig Druck ab. Mit einer höheren Schwelle wurden diese Teile erst
+// angezeigt und dann wieder weggeschnitten – aus einem "s" wurde ein Komma. Samsung Notes zeigt
+// einfach alles, was der Stift berührt. Darum zählt jetzt nur noch "praktisch null Druck".
+// Schwelle und Strecke sind bewusst klein/vorsichtig. Schnelle, leichte Aufstriche
 // beim Schreiben (Verbindungen zwischen Buchstaben) sind ECHTE Schrift und dürfen nie
 // wegfallen – früher wurden sie bei leichter Hand zerschnitten.
 const LIFT_DISTANCE = 10;
 // Abhebe-Schwelle = so viel vom typischen Schreibdruck ...
 const LIFT_RATIO = 0.15;
 // ... aber nie weniger / mehr als das (Druck geht von 0 bis 1)
-const LIFT_MIN = 0.01;
-const LIFT_MAX = 0.03;
+const LIFT_MIN = 0.004;
+const LIFT_MAX = 0.01;
 // Wieder aufsetzen (nach einem erkannten Abheben) braucht etwas mehr Druck – sonst flackert es
 const RETOUCH_FACTOR = 1.5;
 // Leichtes Anschleifen am Anfang: so viel (Pixel) davon bleibt vor dem ersten festen Punkt stehen

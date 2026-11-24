@@ -19,6 +19,8 @@ const FOLLOW_PX = 2;
 const MIN_FOLLOW = 0.12;
 // Mindestabstand zwischen zwei gespeicherten Punkten (Bildschirm-Pixel)
 const MIN_STEP_PX = 1.1;
+// Vorhergesagte Punkte: höchstens so weit (Bildschirm-Pixel) vor dem echten Strich
+const MAX_PREDICT_PX = 6;
 
 export class Steadier {
   // Neuer Strich beginnt bei point
@@ -61,7 +63,14 @@ export class Steadier {
     if (!points.length) return points;
     const last = points[points.length - 1];
     if (Math.hypot(last[0] - this.kept[0], last[1] - this.kept[1]) * scale < 4) return [];
-    return points;
+    // Der Browser schätzt bei schnellen Schwüngen oft viel zu weit: Dann blitzt kurz ein langer,
+    // gerader Strich auf, der im nächsten Bild wieder verschwindet. Darum nur ein kurzes Stück
+    // (höchstens MAX_PREDICT_PX) in die geschätzte Richtung anzeigen.
+    const first = points[0];
+    const d = Math.hypot(first[0] - this.kept[0], first[1] - this.kept[1]) * scale;
+    if (d <= MAX_PREDICT_PX) return [first];
+    const t = MAX_PREDICT_PX / d;
+    return [[this.kept[0] + (first[0] - this.kept[0]) * t, this.kept[1] + (first[1] - this.kept[1]) * t, first[2]]];
   }
 }
 
