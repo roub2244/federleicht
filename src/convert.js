@@ -20,7 +20,8 @@ import { ruling } from './templates.js';
 import { openDialog, progressBox, toast, esc } from './dialog.js';
 import { PAGE_WIDTH } from './view.js';
 import { fitBaseline } from './assist.js';
-import { recognizePolys } from './htr.js';
+import { recognizePolys, learnFrom, learnedLines, forgetLearned } from './htr.js';
+import { prepare as prepareMath, recognize as recognizeMath } from './mathink.js';
 
 const TARGET_HEIGHT = 34; // so hoch (Pixel) soll eine typische Buchstabenhöhe im Bild sein
 const PAD = 24;           // weißer Rand ums Bild (Pixel)
@@ -183,7 +184,7 @@ function renderPreview(strokes) {
 // Zuerst mit unserem eigenen Handschrift-Modell (htr.js). Klappt das nicht (z. B. Datei
 // fehlt), nehmen wir wie früher Tesseract.
 let useTesseract = false;
-export async function recognizeLines(lines, onLine) {
+export async function recognizeLines(lines, onLine, imgs = null) {
   const out = [];
   for (let i = 0; i < lines.length; i++) {
     onLine?.(i, lines.length);
@@ -191,6 +192,7 @@ export async function recognizeLines(lines, onLine) {
       try {
         const r = await recognizePolys(linePolys(lines[i]));
         out.push(cleanLine(r.text));
+        if (imgs) imgs[i] = r.img;
         continue;
       } catch (err) {
         console.warn('Handschrift-Modell geht nicht, nehme Tesseract', err);
@@ -277,6 +279,33 @@ function buildItems({ blocks, texts, page, color, font, onLines, newZ }) {
   return items;
 }
 
+// Sieht das eher nach einer Rechnung aus? (viele Ziffern und Rechenzeichen, kaum Wörter)
+function looksLikeMath(text) {
+  const t = text.replace(/\s/g, '');
+  if (!t) return false;
+  const math = (t.match(/[0-9+\-=()/:x·²³]/g) || []).length;
+  const words = (text.match(/\p{L}{3,}/gu) || []).length;
+  return math / t.length > 0.55 && words <= 1;
+}
+
+// Lernt deine Schrift: Hast du im Fenster etwas verbessert, merkt sich die App die Zeilen
+// (Bild + richtiger Text) und passt die Erkennung im Hintergrund an. Das geht nur, wenn die
+// Zeilen noch zueinander passen (gleich viele Blöcke und Zeilen wie erkannt).
+function learnFromDialog(blocks, imgs, text) {
+  const parts = text.split(/\n\s*\n/).map((p) => p.split('\n').map((l) => l.trim()).filter(Boolean));
+  if (parts.length !== blocks.length || parts.some((p, i) => p.length !== blocks[i].texts.length)) return;
+  const pairs = [];
+  let n = 0;
+  blocks.forEach((b, i) => b.texts.forEach((orig, j) => {
+    const fixed = parts[i][j];
+    pairs.push({ img: imgs[n++], text: fixed, changed: fixed !== orig });
+  }));
+  if (!pairs.some((p) => p.changed && p.img)) return;
+  learnFrom(pairs)
+    .then((r) => r && toast(`Gemerkt: Die Erkennung kennt deine Schrift jetzt besser (${r.lines} Zeilen gelernt)`))
+    .catch((err) => console.warn('Lernen hat nicht geklappt', err));
+}
+
 // Wie hoch ragt die Schrift über die Grundlinie? (oberstes Zehntel weglassen: Ausreißer)
 function capHeight(line) {
   const f = line.fit;
@@ -319,8 +348,9 @@ export async function convertHandwriting({ page, strokes, commit, newZ }) {
     if (/load|initializ/.test(m.status)) progress.update('Texterkennung wird vorbereitet …', null);
   };
   let texts;
+  const imgs = [];
   try {
-    texts = await recognizeLines(lines, (i, n) => progress.update(`Handschrift wird gelesen … Zeile ${i + 1} von ${n}`, i / n));
+    texts = await recognizeLines(lines, (i, n) => progress.update(`Handschrift wird gelesen … Zeile ${i + 1} von ${n}`, i / n), imgs);
   } catch (err) {
     console.error(err);
     progress.close();
@@ -333,6 +363,7 @@ export async function convertHandwriting({ page, strokes, commit, newZ }) {
   progress.close();
   // Zeilen ohne erkannten Text weglassen
   const kept = lines.filter((_, i) => texts[i]);
+  const keptImgs = lines.map((_, i) => imgs[i]).filter((_, i) => texts[i]);
   texts = texts.filter(Boolean);
   if (!kept.length) {
     toast('Leider keinen Text erkannt – deutlicher (in Druckbuchstaben) schreiben hilft');
@@ -349,8 +380,12 @@ export async function convertHandwriting({ page, strokes, commit, newZ }) {
     html: `
       <div class="dlg-title">Handschrift zu Text</div>
       <div class="cv-ink"></div>
-      <label class="cv-label" for="cv-text">Erkannter Text – Fehler kannst du hier verbessern</label>
+      <div class="cv-mode-row">
+        <label class="cv-label" for="cv-text">Erkannter Text – Fehler kannst du hier verbessern</label>
+        <div class="op-seg cv-mode"><button data-mode="text" class="on">Text</button><button data-mode="math">Mathe</button></div>
+      </div>
       <textarea id="cv-text" class="cv-text" spellcheck="true" lang="de">${esc(blocks.map((b) => b.texts.join('\n')).join('\n\n'))}</textarea>
+      <div class="cv-learn" hidden><span class="cv-learn-txt"></span> <button class="cv-learn-forget" data-forget>Vergessen</button></div>
       <div class="cv-label">Schrift</div>
       <div class="cv-fonts">${FONT_CHOICES.map((id) => {
         const f = FONTS.find((x) => x.id === id);
@@ -367,6 +402,42 @@ export async function convertHandwriting({ page, strokes, commit, newZ }) {
       const prev = renderPreview(strokes);
       prev.className = 'cv-preview';
       card.querySelector('.cv-ink').appendChild(prev);
+      // Lernt deine Schrift: Hinweis, wie viel schon gelernt ist
+      const learn = card.querySelector('.cv-learn');
+      const showLearn = (n) => {
+        learn.hidden = !keptImgs.some(Boolean);
+        learn.querySelector('.cv-learn-txt').textContent = n
+          ? `Lernt deine Schrift: ${n} ${n === 1 ? 'Zeile' : 'Zeilen'} gelernt. Verbesserst du hier etwas, wird die Erkennung für dich besser.`
+          : 'Lernt deine Schrift: Verbesserst du hier etwas, merkt sich die App das und erkennt deine Schrift danach besser.';
+        learn.querySelector('[data-forget]').hidden = !n;
+      };
+      learnedLines().then(showLearn, () => {});
+      // Text oder Mathe: Mathe liest Brüche, Hochzahlen und Wurzeln und schreibt sie schön (x², ¾, √2)
+      const area = card.querySelector('.cv-text');
+      const asText = area.value;
+      let mathText = null;
+      const setMode = async (mode) => {
+        for (const b of card.querySelectorAll('[data-mode]')) b.classList.toggle('on', b.dataset.mode === mode);
+        card.dataset.mode = mode;
+        if (mode === 'math') {
+          if (mathText == null) {
+            await prepareMath();
+            mathText = recognizeMath(strokes).rows.map((r) => r.pretty).filter(Boolean).join('\n');
+          }
+          area.value = mathText;
+        } else area.value = asText;
+      };
+      card.querySelector('.cv-mode').addEventListener('click', (e) => {
+        const b = e.target.closest('[data-mode]');
+        if (b && card.dataset.mode !== b.dataset.mode) setMode(b.dataset.mode);
+      });
+      card.dataset.mode = 'text';
+      if (looksLikeMath(asText)) setMode('math');
+      learn.querySelector('[data-forget]').addEventListener('click', async () => {
+        await forgetLearned();
+        showLearn(0);
+        toast('Gelernte Schrift vergessen');
+      });
       card.addEventListener('click', (e) => {
         const f = e.target.closest('[data-font]');
         if (f) {
@@ -377,7 +448,7 @@ export async function convertHandwriting({ page, strokes, commit, newZ }) {
         if (act) {
           const lines = card.querySelector('[data-lines]');
           if (lines) lastOnLines = lines.checked;
-          close({ act, text: card.querySelector('.cv-text').value });
+          close({ act, text: card.querySelector('.cv-text').value, math: card.dataset.mode === 'math' });
         }
       });
     },
@@ -387,6 +458,7 @@ export async function convertHandwriting({ page, strokes, commit, newZ }) {
 
   const text = choice.text.replace(/\r/g, '').trim();
   if (!text) return;
+  if (!choice.math) learnFromDialog(blocks, keptImgs, text);
   if (choice.act === 'copy') {
     try {
       await navigator.clipboard.writeText(text);

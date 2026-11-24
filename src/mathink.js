@@ -338,7 +338,10 @@ export function recognize(strokes) {
     const items = parseRegion(list, h, symbols);
     return { box: boxOf(list), items, strokes: list };
   });
-  for (const r of rows) r.text = stringify(r.items);
+  for (const r of rows) {
+    r.text = stringify(r.items);
+    r.pretty = prettyMath(r.items).trim();
+  }
   return { rows, symbols, h };
 }
 
@@ -548,10 +551,15 @@ function markSuperscripts(parts, h) {
     const bl = base.kind === 'sym' ? base.sym.label : 'x';
     if (!/[0-9x)]/.test(bl) && base.kind === 'sym') continue;
     const ph = H(p.box);
-    const bh = Math.max(H(base.box), h * 0.6);
-    const raised = cy(p.box) < base.box.minY + bh * 0.3 && p.box.maxY < base.box.minY + bh * 0.62;
-    const prevSup = parts[i - 1].sup && cy(p.box) < base.box.minY + bh * 0.35;
-    if ((raised && ph < bh * 0.85) || (prevSup && ph < bh * 0.85)) {
+    // Bezugsgröße: Ziffern sind so hoch wie die Zeile, ein "x" nur halb – also mindestens fast h
+    const bh = Math.max(H(base.box), h * 0.9);
+    const foot = base.box.maxY; // Grundlinie der Basis
+    // hochgestellt = deutlich kleiner UND der Fuß liegt über der Mitte der Basis
+    const raised = cy(p.box) < foot - bh * 0.6 && p.box.maxY < foot - bh * 0.42;
+    const prevSup = parts[i - 1].sup && cy(p.box) < foot - bh * 0.6 && p.box.maxY < foot - bh * 0.35;
+    const flat = p.kind === 'sym' && /^[-−]$/.test(p.sym.label);
+    if (flat && !(p.box.maxY < base.box.minY)) continue; // Minus auf Mitte = Rechenzeichen
+    if ((raised && ph < bh * 0.8) || (prevSup && ph < bh * 0.8)) {
       if (p.kind === 'sym' && /^[=:,]$/.test(p.sym.label)) continue;
       p.sup = true;
     }
@@ -584,4 +592,43 @@ export function stringify(parts) {
 // "x" zwischen zwei Zahlen als "mal" lesen (Einstellung)
 export function xAsTimes(text) {
   return text.replace(/(\d|\))x(?=\d|\()/g, '$1*');
+}
+
+// Teile -> schöner Text zum Weiterschreiben, z. B. "3x² + ½ = √9"
+// (Hochzahlen als echte hochgestellte Zeichen, wenn es sie gibt; sonst x^(…))
+const SUPS = { 0: '⁰', 1: '¹', 2: '²', 3: '³', 4: '⁴', 5: '⁵', 6: '⁶', 7: '⁷', 8: '⁸', 9: '⁹', '+': '⁺', '-': '⁻', '(': '⁽', ')': '⁾', x: 'ˣ', n: 'ⁿ', y: 'ʸ', a: 'ᵃ', b: 'ᵇ', c: 'ᶜ', t: 'ᵗ' };
+const SUBS = { 0: '₀', 1: '₁', 2: '₂', 3: '₃', 4: '₄', 5: '₅', 6: '₆', 7: '₇', 8: '₈', 9: '₉' };
+const simple = (s) => /^[0-9a-zπ.,]+$/i.test(s);
+export function prettyMath(parts) {
+  let out = '';
+  for (let i = 0; i < parts.length; i++) {
+    const p = parts[i];
+    if (p.sup && !parts[i - 1]?.sup) {
+      let k = i;
+      const run = [];
+      while (k < parts.length && parts[k].sup) run.push(parts[k++]);
+      const inner = prettyMath(run.map((r) => ({ ...r, sup: false }))).replace(/\s+/g, '');
+      out += [...inner].every((c) => SUPS[c]) ? [...inner].map((c) => SUPS[c]).join('') : `^(${inner})`;
+      i = k - 1;
+      continue;
+    }
+    if (p.kind === 'root') {
+      const inner = prettyMath(p.inner).trim();
+      out += simple(inner) ? `√${inner}` : `√(${inner})`;
+    } else if (p.kind === 'frac') {
+      const a = prettyMath(p.num).trim();
+      const b = prettyMath(p.den).trim();
+      if (/^\d$/.test(a) && /^\d$/.test(b)) out += `${SUPS[a]}⁄${SUBS[b]}`;
+      else out += `${simple(a) ? a : `(${a})`}/${simple(b) ? b : `(${b})`}`;
+    } else {
+      const l = p.sym.label;
+      if (l === '?') continue;
+      if (/^[=+<>≤≥±]$/.test(l)) out += ` ${l} `;
+      else if (l === '-' || l === '−') out += out.trim() && !/[(=]\s*$/.test(out) ? ' − ' : '−';
+      else if (l === '·' || l === '*') out += ' · ';
+      else if (l === ':') out += ' : ';
+      else out += l;
+    }
+  }
+  return out.replace(/\s{2,}/g, ' ');
 }

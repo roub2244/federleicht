@@ -6,7 +6,11 @@
 // Schriften inkl. deutscher Schulschriften) und kennt dazu 79.000 deutsche Wörter.
 //
 // Ablauf pro Zeile: Striche geradegedreht und gleichmäßig dick als kleines Bild (40 Pixel hoch)
-// malen -> Modell (im Hintergrund-Worker) -> Text mit Wörterbuch-Hilfe.
+// malen -> Modell (im Hintergrund-Worker) -> jedes Wort mit dem Wörterbuch nachprüfen
+// (htrdecode.js, rescore) -> Text. Trainiert wurde auch mit Robins echter Schrift, und die App
+// lernt weiter dazu, wenn du im Fenster „Handschrift zu Text“ etwas verbesserst (htradapt.js).
+
+import { getBlob, putBlob, deleteBlob } from './store.js';
 
 const H = 40;
 let worker = null;
@@ -19,6 +23,7 @@ function getWorker() {
     worker.onmessage = (e) => {
       const p = waiting.get(e.data.id);
       if (!p) return;
+      if (e.data.progress != null) return p.onProgress?.(e.data.progress);
       waiting.delete(e.data.id);
       e.data.ok ? p.resolve(e.data) : p.reject(new Error(e.data.error));
     };
@@ -31,12 +36,119 @@ function getWorker() {
   return worker;
 }
 
-function ask(msg, transfer = []) {
+function post(msg, transfer = [], onProgress = null) {
   const id = ++seq;
+  const w = getWorker();
   return new Promise((resolve, reject) => {
-    waiting.set(id, { resolve, reject });
-    getWorker().postMessage({ id, base: document.baseURI.replace(/[^/]*$/, ''), ...msg }, transfer);
+    waiting.set(id, { resolve, reject, onProgress });
+    w.postMessage({ id, base: document.baseURI.replace(/[^/]*$/, ''), ...msg }, transfer);
   });
+}
+
+// Vor der ersten Frage an einen (neuen) Worker: deine gelernte Schrift mitgeben
+let personalFor = null;
+let personalP = null;
+async function ask(msg, transfer = [], onProgress = null) {
+  getWorker();
+  if (personalFor !== worker) {
+    personalFor = worker;
+    personalP = sendPersonal();
+  }
+  await personalP;
+  return post(msg, transfer, onProgress);
+}
+
+// ---------- Lernt deine Schrift ----------
+// Gespeichert in der App-Datenbank (Schublade "blobs", Namen mit "sys-" werden nie aufgeräumt
+// und kommen mit in die Sicherung):
+//   sys-htr-samples: deine verbesserten Zeilen (Bild + richtiger Text) und deine eigenen Wörter
+//   sys-htr-adapt:   die daraus gelernte letzte Modell-Schicht
+const SAMPLES = 'sys-htr-samples';
+const ADAPT = 'sys-htr-adapt';
+const MAX_SAMPLES = 250;
+
+async function readJSON(id) {
+  try {
+    const b = await getBlob(id);
+    return b ? JSON.parse(await b.text()) : null;
+  } catch {
+    return null;
+  }
+}
+
+async function sendPersonal() {
+  try {
+    const [data, ad] = await Promise.all([readJSON(SAMPLES), getBlob(ADAPT)]);
+    let W = null, B = null;
+    if (ad) {
+      const all = new Float32Array(await ad.arrayBuffer());
+      const nb = all[0] | 0;
+      B = all.slice(1, 1 + nb);
+      W = all.slice(1 + nb);
+    }
+    if (W || data?.words?.length) await post({ type: 'personal', W, B, words: data?.words || [] });
+  } catch (err) {
+    console.warn('Eigene Schrift konnte nicht geladen werden', err);
+  }
+}
+
+// Wie viele Zeilen hat die App schon von dir gelernt?
+export async function learnedLines() {
+  return (await readJSON(SAMPLES))?.samples?.length || 0;
+}
+
+// Verbesserte Zeilen merken und daraus lernen (im Hintergrund).
+// pairs: [{ img: { d, w }, text, changed }] – d: Float32Array 40*w
+export async function learnFrom(pairs, onProgress) {
+  pairs = pairs.filter((p) => p.img && p.text && p.text.trim());
+  if (!pairs.some((p) => p.changed)) return null;
+  const data = (await readJSON(SAMPLES)) || { samples: [], words: [] };
+  const now = Date.now();
+  for (const [i, p] of pairs.entries()) {
+    const q = new Uint8Array(p.img.d.length);
+    for (let i = 0; i < q.length; i++) q[i] = Math.round(p.img.d[i] * 255);
+    data.samples.push({ w: p.img.w, text: p.text.trim(), img: bytesToB64(q), t: now + i });
+  }
+  if (data.samples.length > MAX_SAMPLES) data.samples = data.samples.slice(-MAX_SAMPLES);
+  // eigene Wörter (Namen, Fachwörter): alles, was du selbst hingeschrieben hast
+  const words = new Set(data.words);
+  for (const p of pairs) if (p.changed) for (const w of p.text.match(/\p{L}{2,}/gu) || []) words.add(w);
+  data.words = [...words].slice(-3000);
+  await putBlob(SAMPLES, new Blob([JSON.stringify(data)], { type: 'application/json' }));
+  const samples = data.samples.map((s) => {
+    const q = b64ToBytes(s.img);
+    const d = new Float32Array(q.length);
+    for (let i = 0; i < q.length; i++) d[i] = q[i] / 255;
+    return { img: d, w: s.w, h: H, text: s.text, key: `${s.t}:${s.text}` };
+  });
+  const r = await ask({ type: 'adapt', samples, words: data.words }, [], onProgress);
+  if (r.W) {
+    const all = new Float32Array(1 + r.B.length + r.W.length);
+    all[0] = r.B.length;
+    all.set(r.B, 1);
+    all.set(r.W, 1 + r.B.length);
+    await putBlob(ADAPT, new Blob([all.buffer], { type: 'application/octet-stream' }));
+  }
+  return { lines: data.samples.length, before: r.before, after: r.after };
+}
+
+// Alles Gelernte vergessen
+export async function forgetLearned() {
+  await deleteBlob(SAMPLES);
+  await deleteBlob(ADAPT);
+  if (worker) await post({ type: 'forget' });
+}
+
+function bytesToB64(bytes) {
+  let s = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(s);
+}
+function b64ToBytes(text) {
+  const s = atob(text);
+  const out = new Uint8Array(s.length);
+  for (let i = 0; i < s.length; i++) out[i] = s.charCodeAt(i);
+  return out;
 }
 
 // Schon mal im Hintergrund laden (z. B. wenn "Zu Text" geöffnet wird)
@@ -48,7 +160,9 @@ export function warmUp() {
 export async function recognizePolys(polys) {
   const img = renderInput(polys);
   if (!img) return { text: '', alts: [] };
-  return ask({ img: img.d, w: img.w, h: H }, [img.d.buffer]);
+  const keep = { d: img.d.slice(), w: img.w };
+  const r = await ask({ img: img.d, w: img.w, h: H }, [img.d.buffer]);
+  return { ...r, img: keep };
 }
 
 // Striche wie im Training malen: Tinte = 1, Hintergrund = 0, auf die Schrift zugeschnitten,
