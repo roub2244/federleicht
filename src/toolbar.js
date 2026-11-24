@@ -7,6 +7,7 @@
 //   - Stern im Popup           -> aktuellen Stift als Favorit oben in die Leiste legen
 //   - Favorit lange drücken    -> Favorit entfernen
 
+import { anchorRect } from './toolbarconfig.js';
 import { createStroke, finishStroke, fillStroke, inkTheme, setInkTheme } from './ink.js';
 import {
   PEN_TYPES, COLOR_PAGES, HIGHLIGHTER_COLORS, LASER_COLORS, LASER_DURATIONS, SIZE_RANGE, MAX_FAVORITES,
@@ -181,7 +182,7 @@ export function setupToolbar({ tools, onToolChange, onClear }) {
 
   // Popup unter den Knopf setzen, aber nicht über den Bildschirmrand hinaus
   function placePopup(button) {
-    const b = button.getBoundingClientRect();
+    const b = anchorRect(button);
     const w = popup.offsetWidth;
     const left = Math.min(window.innerWidth - w - 8, Math.max(8, b.left + b.width / 2 - w / 2));
     popup.style.left = `${left}px`;

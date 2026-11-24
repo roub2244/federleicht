@@ -98,6 +98,14 @@
           </svg>
           <i class="swatch"><canvas class="paint" width="1" height="1"></canvas></i>
         </button>
+        <!-- Lineal / Geodreieck aufs Blatt legen (siehe ruler.js) -->
+        <button id="btn-ruler" class="tool-btn aux-btn" title="Lineal und Geodreieck (nochmal tippen: Einstellungen)" aria-label="Lineal und Geodreieck" aria-pressed="false">
+          <svg viewBox="0 0 24 24">
+            <path d="M2.8 18.5h18.4L12 6.2z" />
+            <path d="M8 18.5a4 4 0 0 1 8 0" />
+            <path d="M12 18.5v-2.2M5.5 18.5v-1.4M18.5 18.5v-1.4" stroke-width="1.4" />
+          </svg>
+        </button>
         <!-- Handschrifthilfe an/aus und Handschrift zu Text (siehe assist.js und convert.js) -->
         <button id="btn-assist" class="tool-btn aux-btn" title="Handschrifthilfe: Hilfslinie beim Schreiben, Zeilen werden geradegerückt" aria-label="Handschrifthilfe" aria-pressed="false">
           <svg viewBox="0 0 24 24">
@@ -106,12 +114,25 @@
             <path d="M15.3 12.7 19.8 8.2a1.5 1.5 0 0 0-2.1-2.1l-4.5 4.5-.6 2.7z" />
           </svg>
         </button>
-        <button id="btn-convert" class="tool-btn aux-btn" title="Handschrift zu Text: Auswahl (Lasso) oder ganze Seite umwandeln" aria-label="Handschrift zu Text">
+        <button id="btn-convert" class="tool-btn aux-btn" title="Handschrift zu Text: Rahmen um die Handschrift ziehen (oder Lasso-Auswahl)" aria-label="Handschrift zu Text">
           <svg viewBox="0 0 24 24">
             <path d="M3 13c1.4-3.6 2.8-3.6 3.7-1s2.1 2.8 3.5-1" />
             <path d="M12.5 11.5h3" stroke-width="1.5" />
             <path d="m14.5 9.5 2 2-2 2" stroke-width="1.5" />
             <path d="M17.5 6.5h4.5M19.75 6.5v10" />
+          </svg>
+        </button>
+        <!-- Mathe-Hilfe (siehe mathhelp.js) und Sprachaufnahme (siehe audio.js) – anfangs nur im ⋮-Menü -->
+        <button id="btn-math" class="tool-btn aux-btn" title="Mathe-Hilfe: Rahmen um eine Aufgabe ziehen" aria-label="Mathe-Hilfe">
+          <svg viewBox="0 0 24 24">
+            <path d="M3 13.5h2.2l2.3 5.5 4-14h9.5" />
+            <path d="m13.5 10.5 5 6M18.5 10.5l-5 6" />
+          </svg>
+        </button>
+        <button id="btn-record" class="tool-btn aux-btn" title="Sprachaufnahme mit Schrift-Sync" aria-label="Sprachaufnahme" aria-pressed="false">
+          <svg viewBox="0 0 24 24">
+            <rect x="9" y="3" width="6" height="11" rx="3" />
+            <path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21" />
           </svg>
         </button>
         <!-- Lieblingsstifte (Stern im Stift-Menü), lange drücken entfernt sie -->
@@ -148,12 +169,9 @@
           <svg viewBox="0 0 24 24" class="lock-closed"><rect x="5" y="11" width="14" height="9.5" rx="2.2" /><path d="M8.5 11V7.5a3.5 3.5 0 0 1 7 0V11" /><path d="M12 14.6v2.4" /></svg>
         </button>
         <button id="btn-zoom" class="btn zoom-btn" title="Zoom zurücksetzen">100 %</button>
-        <button id="btn-debug" class="icon-btn" title="Stift-Diagnose ein/aus" aria-label="Stift-Diagnose">
-          <svg viewBox="0 0 24 24"><path d="M3 12h4l3-8 4 16 3-8h4" /></svg>
-        </button>
-        <!-- Werkzeugleiste anpassen (siehe toolbarconfig.js) – bleibt immer ganz rechts -->
-        <button id="btn-customize" class="icon-btn keep-last" title="Werkzeugleiste anpassen" aria-label="Werkzeugleiste anpassen">
-          <svg viewBox="0 0 24 24"><path d="M4 7h9M17 7h3M4 17h3M11 17h9" /><circle cx="15" cy="7" r="2.2" /><circle cx="9" cy="17" r="2.2" /></svg>
+        <!-- ⋮ Mehr: Extras, ausgeblendete Knöpfe, Werkzeugleiste anpassen (siehe moremenu.js) – bleibt immer ganz rechts -->
+        <button id="btn-more" class="icon-btn keep-last" title="Mehr" aria-label="Mehr">
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="5.5" r="1.5" /><circle cx="12" cy="12" r="1.5" /><circle cx="12" cy="18.5" r="1.5" /></svg>
         </button>
       </div>
     </header>
@@ -185,9 +203,6 @@
 
     <!-- Startbildschirm mit allen Notizen und Ordnern (wird von home.js gefüllt) -->
     <div id="home" class="home" hidden></div>
-
-    <!-- Diagnose-Fenster: zeigt, was der S Pen an die App schickt -->
-    <aside id="debug" class="debug" hidden></aside>
 
     <script type="module" src="/src/main.js"></script>
   </body>

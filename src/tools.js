@@ -75,6 +75,9 @@ const DEFAULTS = {
   lasso: { mode: 'free', what: 'all' },  // Lasso: Freihand oder Rechteck; alles, nur Handschrift oder nur Text // Schrift für neue Textfelder (s in Seiten-Einheiten, 22,4 = 14 pt)
   straighten: true,       // gerade Linien durch Stillhalten am Strichende
   assist: false,          // Handschrifthilfe: Zeilen geraderücken, Hilfslinie (siehe assist.js)
+  // Einstellungen der Handschrifthilfe: Hilfslinie, geraderücken, auf Papierlinien setzen,
+  // an die Zeilenhöhe anpassen, Zeilenhöhe auf Karopapier (Kästchen)
+  assistOpts: { guide: true, straighten: true, snap: true, fit: true, boxes: 2 },
   recent: [],             // zuletzt benutzte eigene Farben
   favorites: [],          // Lieblingsstifte: { type, color, size, opacity? }
 };
@@ -105,6 +108,7 @@ export function loadTools() {
     lasso: { ...DEFAULTS.lasso, ...saved.lasso },
     fill: { ...DEFAULTS.fill, ...saved.fill },
     laser: { ...DEFAULTS.laser, ...saved.laser },
+    assistOpts: { ...DEFAULTS.assistOpts, ...saved.assistOpts },
     recent: Array.isArray(saved.recent) ? saved.recent : [],
     favorites: Array.isArray(saved.favorites) ? saved.favorites : [],
   };

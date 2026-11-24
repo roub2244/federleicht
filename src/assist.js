@@ -7,8 +7,14 @@
 //      kariertem Papier; auf liniertem Papier gibt es ja schon Linien).
 //   2. Zeile geraderücken: Sobald du eine Zeile fertig hast (in die nächste Zeile wechselst
 //      oder kurz Pause machst), wird schräg Geschriebenes waagerecht gedreht.
-//   3. Auf die Linie setzen: Auf liniertem Papier rutscht die Zeile genau auf die nächste Linie.
+//   3. Auf die Linie setzen: Auf liniertem, kariertem und Mathe-Papier rutscht die Zeile genau
+//      auf die nächste Linie des Papiers (auf Karo-Papier: die nächste Kästchen-Linie).
 //      Schreibst du später in derselben Zeile weiter, kommt das Neue auf dieselbe Grundlinie.
+//   4. An die Zeilenhöhe anpassen: Ist die Schrift zu groß für die Zeile (oder für 1–2 Kästchen),
+//      wird sie passend kleiner – so steht alles ordentlich zwischen den Linien.
+//
+// Was davon passiert, stellst du im Menü der Handschrifthilfe ein (Knopf nochmal antippen),
+// siehe options(): { guide, straighten, snap, fit, boxes }.
 //
 // Das Geraderücken ist ein eigener Schritt beim Rückgängigmachen: Einmal "Rückgängig"
 // stellt deine Original-Schrift wieder her.
@@ -18,9 +24,9 @@
 // Gerade – robust, also so, dass Unterlängen (g, j, p, q, y) nicht stören: Erst grob schätzen,
 // dann alles weglassen, was deutlich darunter hängt, und nochmal schätzen.
 
-import { transformStroke } from './ink.js';
-import { compose, translate, rotate } from './geometry.js';
-import { ruling } from './templates.js';
+import { transformStroke, finishStroke } from './ink.js';
+import { compose, translate, rotate, scale } from './geometry.js';
+import { paperLines } from './templates.js';
 import { PAGE_WIDTH } from './view.js';
 
 const IDLE_MS = 1600;        // so lange Pause -> Zeile gilt als fertig
@@ -28,7 +34,7 @@ const MAX_ANGLE = 22;        // stärker schräg (Grad) ist vermutlich Absicht (
 const MIN_ANGLE = 1.2;       // weniger schräg lohnt sich nicht
 const MAX_TEXT_HEIGHT = 110; // höhere Striche (Seiten-Einheiten, ~23 mm) sind eher Zeichnung als Schrift
 
-export function setupAssist({ stage, view, doc, renderer, commit, isOn }) {
+export function setupAssist({ stage, view, doc, renderer, commit, isOn, options }) {
   // Hilfslinie auf eigenem durchsichtigem Canvas
   const canvas = document.createElement('canvas');
   canvas.className = 'assist-layer';
@@ -89,13 +95,14 @@ export function setupAssist({ stage, view, doc, renderer, commit, isOn }) {
     return s && s.tool === 'pen' && !s.shape && !s.straight && s.box && s.box.maxY - s.box.minY < MAX_TEXT_HEIGHT;
   }
 
-  // ---------- Zeile fertig: geraderücken und auf die Linie setzen ----------
+  // ---------- Zeile fertig: geraderücken, anpassen und auf die Linie setzen ----------
   function finish() {
     clearTimeout(timer);
     const g = group;
     group = null;
     drawGuide();
     if (!g || !isOn()) return;
+    const opts = options();
     const strokes = g.strokes.filter((s) => g.page.strokes.includes(s)); // inzwischen radiert/rückgängig?
     if (strokes.length < 2 || !doc.pages.includes(g.page)) return;
     const f = fitBaseline(strokes);
@@ -103,52 +110,102 @@ export function setupAssist({ stage, view, doc, renderer, commit, isOn }) {
     const width = f.maxX - f.minX;
     if (width < f.h * 2.5) return; // ein einzelner Buchstabe oder ein Zeichen: lieber nichts ändern
 
-    let angle = Math.atan(f.slope);
+    let angle = opts.straighten ? Math.atan(f.slope) : 0;
     const deg = Math.abs((angle * 180) / Math.PI);
     if (deg > MAX_ANGLE || deg < MIN_ANGLE) angle = 0;
 
     // Drehpunkt: Anfang der Zeile auf der Grundlinie
     const px = f.minX;
     const py = f.y0 + f.slope * (px - f.x0);
+    const plan = planLine(g.page, f, px, py, opts);
+    const dy = plan.dy;
+    const k = plan.k;
+
+    last = { page: g.page, y: py + dy, x0: f.minX, h: f.h * k, at: Date.now() };
+    if (angle === 0 && dy === 0 && k === 1) return;
+
+    // erst um den Drehpunkt drehen und verkleinern, dann senkrecht verschieben
+    const m = compose(translate(px, py + dy), scale(k), rotate(-angle), translate(-px, -py));
+    const added = strokes.map((s) => {
+      const t = transformStroke(s, m);
+      if (k === 1) return t;
+      // Kleiner machen, aber gleich dick weiterschreiben (wie mit demselben Stift)
+      t.size = s.size;
+      t.layers = null;
+      t.box = null;
+      return finishStroke(t);
+    });
+    commit([{ page: g.page, added, removed: strokes }], k !== 1 ? 'Handschrift an die Zeile angepasst' : 'Handschrift geradegerückt');
+  }
+
+  // Wohin mit der Zeile? dy = senkrecht verschieben, k = verkleinern (1 = so lassen), lineY = Ziel-Linie
+  function planLine(page, f, px, py, opts) {
     let dy = 0;
-    const r = ruling(g.page.template);
-    if (r && f.h < r.step * 1.1) {
-      // Nächste Linie suchen (auf liniertem Papier)
-      const k = Math.round((py - r.y0) / r.step);
-      const lineY = r.y0 + k * r.step;
-      if (k >= 0 && lineY <= r.y1 && Math.abs(lineY - py) < r.step * 0.45) dy = lineY - py;
-    } else if (last && last.page === g.page && Date.now() - last.at < 60000) {
+    let k = 1;
+    let lineY = null;
+    const lines = paperLines(page.template);
+    if (lines && (opts.snap || opts.fit)) {
+      // Platz pro Zeile: liniert eine Linie, kariert 1 oder 2 Kästchen
+      const room = lines.kind === 'grid' ? lines.step * (opts.boxes || 2) : lines.step;
+      if (opts.fit && f.h > room * 0.92) k = Math.max(0.35, (room * 0.72) / f.h);
+      if (opts.snap) {
+        const n = Math.round((py - lines.y0) / lines.step);
+        const y = lines.y0 + n * lines.step;
+        const near = Math.abs(y - py) < lines.step * (lines.kind === 'grid' ? 0.75 : 0.6);
+        if (n >= 0 && y <= lines.y1 + 0.5 && near) {
+          lineY = y;
+          dy = y - py;
+        }
+      }
+    } else if (last && last.page === page && Date.now() - last.at < 60000) {
       // Leeres Papier: Weiter in derselben Zeile geschrieben -> gleiche Grundlinie wie davor
       const near = Math.abs(last.y - py) < Math.max(f.h, last.h) * 0.6 && px > last.x0 - f.h;
       if (near) dy = last.y - py;
     }
     if (Math.abs(dy) < 0.6) dy = 0;
-
-    last = { page: g.page, y: py + dy, x0: f.minX, h: f.h, at: Date.now() };
-    if (angle === 0 && dy === 0) return;
-
-    // erst um den Drehpunkt drehen, dann senkrecht verschieben
-    const m = compose(translate(px, py + dy), rotate(-angle), translate(-px, -py));
-    const added = strokes.map((s) => transformStroke(s, m));
-    commit([{ page: g.page, added, removed: strokes }], 'Handschrift geradegerückt');
+    return { dy, k, lineY };
   }
 
   // ---------- Hilfslinie zeichnen ----------
+  // Leeres Papier: gestrichelte Linie in Schreibrichtung.
+  // Papier mit Linien (und "Auf die Linien setzen" an): die Linie, auf der die Zeile landen wird, leuchtet.
   function drawGuide() {
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     if (!group?.fit || group.strokes.length < 2 || !isOn()) return;
-    if (ruling(group.page.template)) return; // liniertes Papier hat schon Linien
+    const opts = options();
+    if (!opts.guide) return;
     const index = doc.pages.indexOf(group.page);
     if (index < 0) return;
     const top = doc.top(index);
     const f = group.fit;
+    const lines = paperLines(group.page.template);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    if (lines) {
+      if (!opts.snap) return; // Linien sind ja schon da
+      const px = f.minX;
+      const py = f.y0 + f.slope * (px - f.x0);
+      const { lineY } = planLine(group.page, f, px, py, opts);
+      if (lineY === null) return;
+      const a = view.toScreen(Math.max(0, f.minX - f.h), lineY + top);
+      const b = view.toScreen(PAGE_WIDTH - 10, lineY + top);
+      ctx.lineWidth = 2.5;
+      ctx.lineCap = 'round';
+      const grad = ctx.createLinearGradient(a[0], 0, b[0], 0);
+      grad.addColorStop(0, 'rgba(74, 108, 247, 0.75)');
+      grad.addColorStop(1, 'rgba(74, 108, 247, 0)');
+      ctx.strokeStyle = grad;
+      ctx.beginPath();
+      ctx.moveTo(a[0], a[1]);
+      ctx.lineTo(b[0], b[1]);
+      ctx.stroke();
+      return;
+    }
     const yAt = (x) => f.y0 + f.slope * (x - f.x0) + top;
     const x0 = Math.max(0, f.minX - f.h);
     const x1 = PAGE_WIDTH - 10;
     const a = view.toScreen(x0, yAt(x0));
     const b = view.toScreen(x1, yAt(x1));
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.lineWidth = 1.5;
     ctx.setLineDash([6, 6]);
     ctx.strokeStyle = 'rgba(74, 108, 247, 0.55)';
@@ -156,6 +213,7 @@ export function setupAssist({ stage, view, doc, renderer, commit, isOn }) {
     ctx.moveTo(a[0], a[1]);
     ctx.lineTo(b[0], b[1]);
     ctx.stroke();
+    ctx.setLineDash([]);
   }
 
   return {

@@ -176,7 +176,7 @@ function renderPreview(strokes) {
 }
 
 // ---------- 3. Erkennen (Zeile für Zeile) ----------
-async function recognizeLines(lines, onLine) {
+export async function recognizeLines(lines, onLine) {
   const worker = await getWorker();
   const out = [];
   for (let i = 0; i < lines.length; i++) {

@@ -86,6 +86,7 @@ export function setupInput(canvas, app) {
   let lastPenTime = -Infinity;
   const touches = new Map(); // aktive Finger: pointerId -> [x, y]
   const ignored = new Set(); // als Handballen erkannte Berührungen
+  let rulerGesture = false;  // die Finger bewegen gerade das Lineal (siehe ruler.js)
 
   // "Pointer Capture": alle weiteren Events dieses Stifts/Fingers kommen bei uns an,
   // auch wenn er kurz über den Rand der Zeichenfläche rutscht.
@@ -142,7 +143,6 @@ export function setupInput(canvas, app) {
     clickTimer = setTimeout(() => {
       if (!contactSinceRelease) {
         setStickyEraser(!stickyEraser);
-        app.debug.addLine(`Knopf-Klick → Radierer ${stickyEraser ? 'AN' : 'AUS'}`);
       }
     }, ARM_MS);
   }
@@ -167,7 +167,6 @@ export function setupInput(canvas, app) {
       app.showEraser(null);
       eraserShown = false;
     }
-    app.debug.addLine('Knopf lange gehalten → Schnellmenü');
     app.openQuickMenu(lastClient[0], lastClient[1]);
   }
 
@@ -357,7 +356,6 @@ export function setupInput(canvas, app) {
     const touching = contacts.size > 0 || penMode !== 'none';
     const justLifted = e.timeStamp - lastContactEnd < CONTEXT_AFTER_LIFT_MS;
     if (touching || justLifted) {
-      app.debug.addLine('contextmenu beim/nach dem Schreiben → ignoriert');
       return;
     }
     if (e.timeStamp - lastPenTime < 1000) buttonReleasedAt = e.timeStamp;
@@ -419,6 +417,8 @@ export function setupInput(canvas, app) {
       capture(id);
       touches.set(id, screenPos(e));
       lockAnchor = null; // neuer Finger -> Geste beginnt neu
+      // Erster Finger auf dem Lineal/Geodreieck: diese Geste bewegt das Lineal, nicht die Seite
+      if (touches.size === 1) rulerGesture = Boolean(app.rulerHit?.(...screenPos(e)));
       if (touches.size === 1) {
         multiTouch = false;
         flingSamples = [];
@@ -438,6 +438,14 @@ export function setupInput(canvas, app) {
 
     if (ended) {
       touches.delete(id);
+      if (rulerGesture) {
+        if (touches.size === 0) {
+          rulerGesture = false;
+          app.rulerGestureEnd?.();
+        }
+        fingerTap = null;
+        return 'Lineal';
+      }
       // Kurzes Tippen mit dem Finger beim Text-Werkzeug (oder während ein Textfeld offen ist)
       if (fingerTap?.id === id && e.type === 'pointerup' && (app.textMode() || app.textEditing())) {
         const moved = Math.hypot(e.clientX - fingerTap.x, e.clientY - fingerTap.y);
@@ -473,6 +481,13 @@ export function setupInput(canvas, app) {
       if (flingSamples.length > 8) flingSamples.shift();
     }
 
+    // Lineal: 1 Finger verschiebt, 2 Finger verschieben und drehen
+    if (rulerGesture) {
+      const turn = before.dist > 0 && after.dist > 0 ? after.angle - before.angle : 0;
+      app.rulerGesture?.(after.cx - before.cx, after.cy - before.cy, Math.atan2(Math.sin(turn), Math.cos(turn)), after.cx, after.cy);
+      return 'Lineal';
+    }
+
     if (app.isLocked()) {
       // Scroll-Sperre: ein Finger bewegt nichts (auch kein Wisch). Nur zwei Finger scrollen senkrecht.
       if (touches.size < 2) {
@@ -503,8 +518,8 @@ export function setupInput(canvas, app) {
   function onPointerEvent(e) {
     // Jede neue Berührung hält das Weiterrollen an (wie beim Handy)
     if (e.type === 'pointerdown') app.stopFling();
-    const status = e.pointerType === 'touch' ? handleTouch(e) : handlePen(e);
-    app.debug.record(e, status);
+    if (e.pointerType === 'touch') handleTouch(e);
+    else handlePen(e);
   }
 
   for (const type of ['pointerdown', 'pointermove', 'pointerup', 'pointercancel']) {
@@ -515,7 +530,6 @@ export function setupInput(canvas, app) {
   canvas.addEventListener('lostpointercapture', (e) => {
     if (contacts.has(e.pointerId)) {
       abortContacts();
-      app.debug.addLine(`lostpointercapture id=${e.pointerId} → Strich beendet`);
     }
   });
 
@@ -557,11 +571,12 @@ export function setupInput(canvas, app) {
 // Mitte (cx, cy) und Abstand (dist) der ersten zwei Finger
 function gesture(touches) {
   const pts = [...touches.values()];
-  if (pts.length === 1) return { cx: pts[0][0], cy: pts[0][1], dist: 0 };
+  if (pts.length === 1) return { cx: pts[0][0], cy: pts[0][1], dist: 0, angle: 0 };
   const [a, b] = pts;
   return {
     cx: (a[0] + b[0]) / 2,
     cy: (a[1] + b[1]) / 2,
     dist: Math.hypot(a[0] - b[0], a[1] - b[1]),
+    angle: Math.atan2(b[1] - a[1], b[0] - a[0]),
   };
 }

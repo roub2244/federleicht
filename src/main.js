@@ -8,7 +8,6 @@ import { setupPages } from './pages.js';
 import { Renderer } from './renderer.js';
 import { createStroke, buildPath, finishStroke, fillStroke, strokeHit, cutStroke, inkTheme, setInkTheme, displayColor } from './ink.js';
 import { setupInput } from './input.js';
-import { Debug } from './debug.js';
 import { HoldDetector, averagePressure, longEnough } from './straighten.js';
 import { History } from './history.js';
 import { LiftTracker } from './lift.js';
@@ -32,8 +31,15 @@ import { computeFill, createFill } from './fill.js';
 import { openImageEditor } from './imageeditor.js';
 import { setupLaser } from './laser.js';
 import { setupToolbarConfig } from './toolbarconfig.js';
+import { setupMoreMenu } from './moremenu.js';
+import { openOptions, closeOptions, optionsOpen } from './optionspopup.js';
+import { setupAreaPick } from './areapick.js';
+import { setupRuler } from './ruler.js';
+import * as lock from './lock.js';
 import { setupAssist } from './assist.js';
 import { convertHandwriting } from './convert.js';
+import { setupAudio } from './audio.js';
+import { setupMathHelp, MATH_ICON } from './mathhelp.js';
 
 // ---------- Einstellungen ----------
 // Farbe, Dicke, Stiftart usw. kommen aus der Werkzeugleiste (siehe tools.js)
@@ -50,8 +56,29 @@ const redoButton = document.getElementById('btn-redo');
 const doc = new NoteDocument(loadJSON('pageTemplate', DEFAULT_TEMPLATE));
 const view = new View();                  // Zoom und Verschiebung
 const renderer = new Renderer(canvas, view, doc);
-const debug = new Debug(document.getElementById('debug'), renderer);
 const laser = setupLaser({ stage, view, tools }); // Laserpointer (siehe laser.js)
+const areaPick = setupAreaPick({ stage, view, doc }); // Bereich wählen (Zu Text, Mathe-Hilfe)
+const ruler = setupRuler({ stage, view, onChange: () => applyRulerButton() }); // Lineal und Geodreieck
+// Sprachaufnahme mit Schrift-Sync (siehe audio.js)
+const audio = setupAudio({
+  stage,
+  doc,
+  view,
+  renderer,
+  getNote: () => note,
+  onChanged(contentChanged) {
+    if (contentChanged) markDirty([], true);
+    applyRecordButton();
+  },
+  scrollToStroke(pageIndex, s) {
+    // Nur scrollen, wenn der Strich gerade nicht (ganz) zu sehen ist
+    const top = doc.top(pageIndex);
+    const [, y0] = view.toScreen(s.box.minX, s.box.minY + top);
+    const [, y1] = view.toScreen(s.box.maxX, s.box.maxY + top);
+    if (y0 > 70 && y1 < view.height - 90) return;
+    animateViewY(view.height * 0.4 - (top + (s.box.minY + s.box.maxY) / 2) * view.scale);
+  },
+});
 
 let current = null;      // der Strich, der gerade geschrieben wird
 let currentPage = null;  // ... auf dieser Seite
@@ -68,7 +95,9 @@ let swallowPen = false;  // dieser Stift-Strich hebt nur eine Auswahl auf (z. B.
 let mediaMenu = null;    // Menüs "Einfügen" und "Teilen" (siehe mediamenu.js)
 let claudeMenu = null;   // Claude-Knopf (siehe claudemenu.js)
 let assist = null;       // Handschrifthilfe (siehe assist.js), wird weiter unten eingerichtet
-let lasering = false;    // Laserpointer: Stift liegt gerade auf (siehe laser.js)
+let lasering = false;
+let moreMenu = null;     // ⋮-Menü oben rechts (siehe moremenu.js)
+let picking = false;     // Stift zieht gerade einen Rahmen (Bereich wählen, siehe areapick.js)    // Laserpointer: Stift liegt gerade auf (siehe laser.js)
 
 // Rückgängig/Wiederholen: bei jeder Änderung die Knöpfe an- oder ausgrauen
 const history = new History(() => {
@@ -90,11 +119,15 @@ const steady = new Steadier();
 // input.js ruft diese Funktionen auf, je nachdem was Stift und Finger machen.
 const app = {
   view,
-  debug,
 
   startStroke(point, pointerType) {
     liftedPointer = null;
     swallowPen = false;
+    // Bereich wählen: der Stift zieht einen Rahmen statt zu zeichnen
+    if (areaPick.active) {
+      picking = true;
+      return areaPick.down(point);
+    }
     // Laserpointer: leuchtende Spur, die nicht gespeichert wird
     if (tools.tool === 'laser') {
       lasering = true;
@@ -108,6 +141,14 @@ const app = {
     }
     // Lasso: statt zu zeichnen eine Auswahl-Schlinge ziehen (siehe lasso.js)
     if (tools.tool === 'lasso') return lasso.penDown(point);
+    // Aufnahme wird abgespielt: Strich antippen springt zu der Stelle im Ton
+    if (audio.playing && (tools.tool === 'pen' || tools.tool === 'highlighter')) {
+      const i = doc.indexAt(point[1]);
+      if (audio.tapSeek(doc.pages[i], [point[0], point[1] - doc.top(i)])) {
+        swallowPen = true;
+        return;
+      }
+    }
     // Der Strich gehört zu der Seite, auf der er anfängt (in der Lücke: die nähere)
     const index = doc.indexAt(point[1]);
     currentPage = doc.pages[index];
@@ -124,6 +165,7 @@ const app = {
 
   extendStroke(points, predicted) {
     if (points.length === 0 || swallowPen) return;
+    if (picking) return areaPick.move(points[points.length - 1]);
     if (lasering) return laser.move(points);
     if (tools.tool === 'lasso') return lasso.penMove(points);
     if (shapeDrag) return updateShapeDrag(toLocal(points[points.length - 1]));
@@ -135,13 +177,22 @@ const app = {
       if (!liftedPointer) return;
       const first = points.findIndex((p) => lift.isRetouch(p[2]));
       if (first < 0) return;
-      debug.addLine('Wieder aufgedrückt → neuer Strich');
       beginStroke(points[first], liftedPointer);
       liftedPointer = null;
       points = points.slice(first + 1);
       if (points.length === 0) return drawCurrentStroke(predicted);
     }
     const last = points[points.length - 1];
+
+    // Am Lineal: die Linie folgt dem Stift, aber immer genau an der Kante
+    if (current.ruled) {
+      const { snap, a, pressure } = current.ruled;
+      const b = ruler.project(snap, toDoc(last));
+      current.points = densify([toLocal(a), toLocal(b)], false, pressure, 2.5);
+      ruler.showMeasure(a, b);
+      drawCurrentStroke([]);
+      return;
+    }
 
     // Schon zur Form geworden? Dann folgt die Form dem Stift (Linie: das Ende; Kreis, Rechteck …:
     // größer/kleiner und drehen, solange die Spitze unten bleibt)
@@ -168,7 +219,6 @@ const app = {
         } else if (verdict?.cut !== undefined) {
           // Stift ist abgesetzt, liegt aber noch leicht auf: Strich hier beenden
           current.points.length = Math.max(1, verdict.cut);
-          debug.addLine(`Abheben erkannt (Druck ${p[2].toFixed(3)}) → Strich beendet`);
           finishCurrentStroke();
           liftedPointer = 'pen';
           // Falls in denselben Punkten schon wieder aufgedrückt wurde: gleich weitermachen
@@ -184,6 +234,10 @@ const app = {
 
   endStroke() {
     liftedPointer = null;
+    if (picking) {
+      picking = false;
+      return areaPick.up();
+    }
     if (lasering) {
       lasering = false;
       return laser.up();
@@ -341,6 +395,22 @@ const app = {
     textEditor.create(page, x, y, nextZ++, w, true);
   },
 
+  // ---------- Lineal / Geodreieck (siehe ruler.js) ----------
+  rulerHit(sx, sy) {
+    return ruler.hitScreen(sx, sy);
+  },
+  // Finger auf dem Lineal: verschieben (Bildschirm-Pixel) und drehen (um den Finger-Mittelpunkt)
+  rulerGesture(dx, dy, dAngle, cx, cy) {
+    ruler.moveBy(dx / view.scale, dy / view.scale);
+    if (dAngle) {
+      const [px, py] = view.toPage(cx, cy);
+      ruler.rotateBy(dAngle, px, py);
+    }
+  },
+  rulerGestureEnd() {
+    ruler.gestureEnd();
+  },
+
   // Scroll-Sperre an? (dann kein Zoomen und kein seitliches Verrutschen, siehe input.js)
   isLocked() {
     return viewLocked;
@@ -361,6 +431,18 @@ function beginStroke(point, pointerType) {
     z: nextZ++,
   });
   assist?.strokeStarted(currentPage, point);
+  current.recStart = audio.stamp(); // läuft eine Aufnahme? Dann merkt sich der Strich die Zeit
+  // Am Lineal angesetzt? Dann läuft der Strich als gerade Linie an der Kante entlang
+  const snap = ruler.on ? ruler.snapStart(toDoc(point), style.size) : null;
+  if (snap) {
+    const a = ruler.project(snap, toDoc(point));
+    current.ruled = { snap, a, pressure: current.simulatePressure ? 0.5 : Math.max(0.45, point[2]) };
+    current.straight = true;
+    current.shape = 'line';
+    current.points = densify([toLocal(a), toLocal(a)], false, current.ruled.pressure, 2.5);
+    drawCurrentStroke([]);
+    return;
+  }
   lift.reset();
   steady.reset(point);
   current.points.push(inkPoint(point));
@@ -373,7 +455,16 @@ function beginStroke(point, pointerType) {
 function finishCurrentStroke() {
   hold.stop();
   if (!current) return;
+  if (current.ruled) {
+    ruler.showMeasure(null);
+    delete current.ruled;
+  }
   if (!current.simulatePressure) lift.learn();
+  if (current.recStart) {
+    const end = audio.stamp();
+    if (end && end.id === current.recStart.id) current.rec = [end.id, current.recStart.t, Math.max(current.recStart.t, end.t)];
+  }
+  delete current.recStart;
   finishStroke(current);
   if (current.box && doc.pages.includes(currentPage)) {
     currentPage.strokes.push(current); // hat das höchste z, gehört also ans Ende
@@ -440,7 +531,6 @@ function straightenCurrentStroke() {
   current.fit = { shape, ref: [end[0], end[1]] };
   applyShapeFit(end);
   drawCurrentStroke([]);
-  debug.addLine(`Form erkannt: ${shape.kind}`);
   navigator.vibrate?.(12); // kurzes Ruckeln als Rückmeldung (falls das Gerät es kann)
 }
 
@@ -785,6 +875,30 @@ function startFling(vx, vy) {
   scrollFrame = requestAnimationFrame(step);
 }
 
+// Sanft zu einer Höhe scrollen (z. B. beim Abspielen einer Aufnahme der Schrift folgen)
+function animateViewY(y) {
+  if (current || viewLocked) return;
+  stopScrollAnimation();
+  const from = view.y;
+  const saved = view.y;
+  view.y = y;
+  view.clamp();
+  const target = view.y;
+  view.y = saved;
+  if (Math.abs(target - from) < 1) return;
+  const start = performance.now();
+  scrolling = true;
+  const step = (now) => {
+    const t = Math.min(1, (now - start) / 420);
+    view.y = from + (target - from) * (1 - Math.pow(1 - t, 3));
+    view.clamp();
+    afterViewChange();
+    if (t < 1) scrollFrame = requestAnimationFrame(step);
+    else stopScrollAnimation();
+  };
+  scrollFrame = requestAnimationFrame(step);
+}
+
 // Zu Seite i springen (Oberkante der Seite oben am Bildschirm)
 function goTo(i, animate = true) {
   stopScrollAnimation();
@@ -833,6 +947,8 @@ function afterViewChange() {
   lasso?.place();
   laser.redraw();
   assist?.redraw();
+  areaPick.redraw();
+  ruler.redraw();
   zoomButton.textContent = `${Math.round((view.scale / view.fitScale) * 100)} %`;
   pages?.onViewChange();
   scheduleSession();
@@ -927,6 +1043,7 @@ mediaMenu = setupMediaMenu({
     toolbar.closePopup();
     pages.closePopup();
     claudeMenu?.close();
+    moreMenu?.close();
   },
 });
 
@@ -951,6 +1068,7 @@ claudeMenu = setupClaudeMenu({
     toolbar.closePopup();
     pages.closePopup();
     mediaMenu?.close();
+    moreMenu?.close();
   },
 });
 
@@ -1283,6 +1401,7 @@ pages = setupPages({
     toolbar.closePopup();
     mediaMenu?.close();
     claudeMenu?.close();
+    moreMenu?.close();
   },
 });
 
@@ -1323,20 +1442,87 @@ assist = setupAssist({
   renderer,
   commit: commitChanges,
   isOn: () => tools.assist,
+  options: () => tools.assistOpts,
 });
 const assistButton = document.getElementById('btn-assist');
 function applyAssistButton() {
   assistButton.classList.toggle('on', tools.assist);
   assistButton.setAttribute('aria-pressed', String(tools.assist));
 }
-assistButton.addEventListener('click', () => {
-  tools.assist = !tools.assist;
+function setAssist(on) {
+  tools.assist = on;
   saveTools(tools);
-  if (!tools.assist) assist.reset();
+  if (!on) assist.reset();
   applyAssistButton();
-  toast(tools.assist ? 'Handschrifthilfe an: Zeilen werden nach dem Schreiben geradegerückt' : 'Handschrifthilfe aus');
+}
+// Aus -> antippen schaltet an. An -> antippen öffnet die Einstellungen (wie bei den Stiften).
+assistButton.addEventListener('click', () => {
+  if (optionsOpen(assistButton)) return closeOptions();
+  closeAllPopups();
+  if (!tools.assist) {
+    setAssist(true);
+    toast('Handschrifthilfe an – nochmal antippen für Einstellungen');
+    return;
+  }
+  openAssistOptions();
 });
+function openAssistOptions() {
+  openOptions(assistButton, {
+    title: 'Handschrifthilfe',
+    rows: [
+      { type: 'switch', key: 'on', main: true, label: 'Handschrifthilfe', hint: 'Hilft dir, ordentlich in der Zeile zu schreiben' },
+      { type: 'title', text: 'Beim Schreiben' },
+      { type: 'switch', key: 'guide', label: 'Hilfslinie zeigen', hint: 'Leeres Papier: gestrichelte Linie. Liniert/kariert: die Ziel-Linie leuchtet' },
+      { type: 'title', text: 'Wenn die Zeile fertig ist' },
+      { type: 'switch', key: 'straighten', label: 'Schräge Zeilen geraderücken', hint: 'Bergauf oder bergab Geschriebenes wird waagerecht' },
+      { type: 'switch', key: 'snap', label: 'Auf die Linien des Papiers setzen', hint: 'Liniert, kariert, Mathe-Heft, Millimeter: Die Schrift steht genau auf der Linie' },
+      { type: 'switch', key: 'fit', label: 'An die Zeilenhöhe anpassen', hint: 'Zu große Schrift wird kleiner, damit sie zwischen die Linien passt' },
+      { type: 'seg', key: 'boxes', label: 'Zeilenhöhe auf Karopapier', options: [[1, '1 Kästchen'], [2, '2 Kästchen'], [3, '3 Kästchen']], when: () => tools.assistOpts.fit },
+      { type: 'note', text: 'Einmal „Rückgängig“ holt deine Original-Schrift zurück.' },
+    ],
+    get: (key) => (key === 'on' ? tools.assist : tools.assistOpts[key]),
+    set(key, value) {
+      if (key === 'on') return setAssist(value);
+      tools.assistOpts[key] = value;
+      saveTools(tools);
+      assist.redraw();
+    },
+  });
+}
 applyAssistButton();
+
+// ---------- Lineal und Geodreieck (siehe ruler.js) ----------
+const rulerButton = document.getElementById('btn-ruler');
+function applyRulerButton() {
+  rulerButton.classList.toggle('on', ruler.on);
+  rulerButton.setAttribute('aria-pressed', String(ruler.on));
+}
+// Aus -> antippen legt es aufs Blatt. An -> antippen öffnet die Einstellungen.
+rulerButton.addEventListener('click', () => {
+  if (optionsOpen(rulerButton)) return closeOptions();
+  closeAllPopups();
+  if (!ruler.on) {
+    ruler.show();
+    toast(`${ruler.kind === 'ruler' ? 'Lineal' : 'Geodreieck'}: 1 Finger verschiebt, 2 Finger drehen – Stift an die Kante = gerade Linie`);
+    return;
+  }
+  openOptions(rulerButton, {
+    title: 'Lineal und Geodreieck',
+    rows: [
+      { type: 'switch', key: 'on', main: true, label: 'Auf dem Blatt', hint: '1 Finger verschiebt, 2 Finger drehen. Stift an die Kante setzen = gerade Linie mit Länge in cm' },
+      { type: 'seg', key: 'kind', label: 'Form', options: [['triangle', 'Geodreieck'], ['ruler', 'Lineal']] },
+      { type: 'button', key: 'level', label: 'Gerade hinlegen (0°)', closes: false, run: () => ruler.level() },
+      { type: 'button', key: 'center', label: 'In die Mitte holen', run: () => ruler.center() },
+      { type: 'note', text: 'Beim Drehen rastet es bei 0°, 15°, 30°, 45° … leicht ein. Der Winkel steht in der Mitte.' },
+    ],
+    get: (key) => (key === 'on' ? ruler.on : ruler.kind),
+    set(key, value) {
+      if (key === 'on') return value ? ruler.show() : ruler.hide();
+      if (key === 'kind') ruler.setKind(value);
+    },
+  });
+});
+applyRulerButton();
 
 // Handschrift in Text umwandeln: die Lasso-Auswahl, sonst alles auf der Seite in der Mitte
 async function convertInk(page, strokes) {
@@ -1346,24 +1532,179 @@ async function convertInk(page, strokes) {
     toast('In Text umgewandelt – antippen mit dem Text-Werkzeug zum Bearbeiten', { label: 'Rückgängig', run: undo });
   }
 }
-document.getElementById('btn-convert').addEventListener('click', () => {
+// Knopf "Zu Text": Ist etwas mit dem Lasso ausgewählt, wird das umgewandelt.
+// Sonst ziehst du mit dem Stift einen Rahmen um die Handschrift, die Text werden soll –
+// oder wählst in der Leiste "Ganze Seite".
+const convertButton = document.getElementById('btn-convert');
+convertButton.addEventListener('click', async () => {
+  closeAllPopups();
   const sel = lasso.selection;
   if (sel) {
     lasso.clear();
     return convertInk(sel.page, sel.items);
   }
-  const page = doc.pages[currentIndex()];
-  const ink = page.strokes.filter((s) => s.tool === 'pen' && !s.shape);
-  if (!ink.length) return toast('Hier ist keine Handschrift – erst schreiben oder mit dem Lasso auswählen');
-  convertInk(page, ink);
+  if (areaPick.active) return areaPick.cancel();
+  convertButton.classList.add('on');
+  const result = await areaPick.start({
+    title: 'Handschrift zu Text',
+    hint: 'Ziehe mit dem Stift einen Rahmen um die Handschrift, die Text werden soll',
+    icon: convertButton.querySelector('svg').outerHTML,
+    actions: [{ id: 'page', label: 'Ganze Seite' }],
+  });
+  convertButton.classList.remove('on');
+  if (!result) return;
+  if (result.action === 'page') {
+    const page = doc.pages[currentIndex()];
+    const ink = page.strokes.filter((s) => s.tool === 'pen' && !s.shape);
+    if (!ink.length) return toast('Auf dieser Seite ist keine Handschrift');
+    return convertInk(page, ink);
+  }
+  const ink = result.items.filter((s) => s.tool === 'pen' && !s.shape);
+  if (!ink.length) return toast('Im Rahmen ist keine Handschrift – nochmal versuchen');
+  convertInk(result.page, ink);
 });
 
-// ---------- Werkzeugleiste anpassen (siehe toolbarconfig.js) ----------
+// ---------- Werkzeugleiste anpassen und ⋮-Menü (siehe toolbarconfig.js, moremenu.js) ----------
 const toolbarConfig = setupToolbarConfig();
-document.getElementById('btn-customize').addEventListener('click', () => {
-  toolbar.closePopup();
-  toolbarConfig.open();
+// Weitere Einträge im ⋮-Menü (Sprachaufnahme, Mathe-Hilfe, Notiz sperren …) melden sich hier an
+const moreEntries = [];
+moreMenu = setupMoreMenu({
+  sections: () => {
+    const groups = new Map();
+    for (const e of moreEntries) {
+      const row = e.row();
+      if (!row) continue;
+      if (!groups.has(e.group)) groups.set(e.group, []);
+      groups.get(e.group).push(row);
+    }
+    return [...groups].map(([title, rows]) => ({ title, rows }));
+  },
+  hiddenItems: () => toolbarConfig.hiddenItems(),
+  customize() {
+    closeAllPopups();
+    toolbarConfig.open();
+  },
+  closeOtherPopups() {
+    toolbar.closePopup();
+    pages.closePopup();
+    mediaMenu?.close();
+    claudeMenu?.close();
+  },
 });
+
+// ⋮-Menü: Notiz mit PIN sperren (siehe lock.js)
+const LOCK_ICON = '<svg viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="9.5" rx="2.2"/><path d="M8.5 11V7.5a3.5 3.5 0 0 1 7 0V11"/><path d="M12 14.6v2.4"/></svg>';
+moreEntries.push({
+  group: 'Notiz',
+  row: () =>
+    note && {
+      icon: LOCK_ICON,
+      label: note.locked ? 'Sperre entfernen' : 'Notiz mit PIN sperren',
+      hint: note.locked ? 'Öffnen geht dann wieder ohne PIN' : 'Öffnen nur noch mit deiner PIN',
+      on: Boolean(note.locked),
+      async run() {
+        if (!note) return;
+        if (!note.locked) {
+          if (!(await lock.ensurePin())) return;
+          note.locked = true;
+          toast('Notiz gesperrt – öffnen nur mit PIN');
+        } else {
+          if (!(await lock.unlock('Sperre entfernen'))) return;
+          note.locked = false;
+          toast('Sperre entfernt');
+        }
+        markDirty([], true);
+      },
+    },
+});
+
+// ---------- Sprachaufnahme (siehe audio.js) ----------
+const recordButton = document.getElementById('btn-record');
+const MIC_ICON = '<svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg>';
+function applyRecordButton() {
+  recordButton.classList.toggle('on', audio.recording);
+  recordButton.classList.toggle('rec-live', audio.recording);
+  recordButton.setAttribute('aria-pressed', String(audio.recording));
+}
+function openRecordPanel(anchor) {
+  closeAllPopups();
+  audio.openPanel(anchor);
+}
+recordButton.addEventListener('click', () => openRecordPanel(recordButton));
+moreEntries.push({
+  group: 'Extras',
+  row: () =>
+    note && {
+      tool: 'record',
+      icon: MIC_ICON,
+      label: audio.recording ? 'Aufnahme läuft …' : 'Sprachaufnahme',
+      hint: audio.recording
+        ? 'Tippen für Aufnahmen und Einstellungen'
+        : `Ton aufnehmen, die Schrift läuft beim Abspielen mit${note.recordings?.length ? ` · ${note.recordings.length} gespeichert` : ''}`,
+      on: audio.recording,
+      run: () => openRecordPanel(document.getElementById('btn-more')),
+    },
+});
+applyRecordButton();
+
+// ---------- Mathe-Hilfe (siehe mathhelp.js, mathink.js, mathsolve.js) ----------
+const mathButton = document.getElementById('btn-math');
+const mathHelp = setupMathHelp({
+  commit: commitChanges,
+  newZ: () => nextZ++,
+  penColor: () => activeStyle(tools).color,
+  // Eingetipptes Ergebnis: in die Mitte der sichtbaren Seite
+  freeSpot() {
+    if (!note) return null;
+    const i = currentIndex();
+    const [x, y] = view.toPage(view.width / 2, view.height / 2);
+    return { page: doc.pages[i], x: Math.max(30, x - 160), y: y - doc.top(i) };
+  },
+  pickArea: () => startMath(true),
+});
+async function startMath(fromPanel = false) {
+  if (!note) return;
+  closeAllPopups();
+  const sel = lasso.selection;
+  if (sel && !fromPanel) {
+    lasso.clear();
+    return mathHelp.fromInk(sel.page, sel.items);
+  }
+  if (areaPick.active) return areaPick.cancel();
+  mathButton.classList.add('on');
+  const result = await areaPick.start({
+    title: 'Mathe-Hilfe',
+    hint: 'Ziehe mit dem Stift einen Rahmen um die Aufgabe (z. B. 3x + 5 = 20 oder 12 · 4 =)',
+    icon: MATH_ICON,
+    actions: [{ id: 'type', label: 'Eintippen' }],
+  });
+  mathButton.classList.remove('on');
+  if (!result) return;
+  if (result.action === 'type') return mathHelp.typed();
+  mathHelp.fromInk(result.page, result.items);
+}
+mathButton.addEventListener('click', () => startMath());
+moreEntries.push({
+  group: 'Extras',
+  row: () =>
+    note && {
+      tool: 'math',
+      icon: MATH_ICON,
+      label: 'Mathe-Hilfe',
+      hint: 'Aufgabe einrahmen: ausrechnen, Gleichung lösen, mit Rechenweg',
+      run: () => startMath(),
+    },
+});
+
+// Alle kleinen Menüs oben zu
+function closeAllPopups() {
+  closeOptions();
+  toolbar.closePopup();
+  pages.closePopup();
+  mediaMenu?.close();
+  claudeMenu?.close();
+  moreMenu?.close();
+}
 
 undoButton.addEventListener('click', undo);
 redoButton.addEventListener('click', redo);
@@ -1416,20 +1757,6 @@ zoomButton.addEventListener('click', () => {
   view.fitToWidth();
   afterViewChange();
 });
-
-// Diagnose ein/aus (die Einstellung wird gemerkt)
-const debugButton = document.getElementById('btn-debug');
-let debugVisible = readSetting('debug', 'on') === 'on';
-function applyDebugVisible() {
-  debug.setVisible(debugVisible);
-  debugButton.classList.toggle('active', debugVisible);
-}
-debugButton.addEventListener('click', () => {
-  debugVisible = !debugVisible;
-  saveSetting('debug', debugVisible ? 'on' : 'off');
-  applyDebugVisible();
-});
-applyDebugVisible();
 
 // "App installieren": Chrome meldet mit "beforeinstallprompt", dass es geht
 const installButton = document.getElementById('btn-install');
@@ -1552,7 +1879,8 @@ async function writeNote(forceThumbs) {
     target.pageIds = ids;
     target.pageCount = ids.length;
     target.firstTemplate = { ...doc.pages[0].template };
-    target.blobIds = fileIdsOf(doc.pages); // diese Dateien (Bilder, PDFs) darf das Aufräumen nicht löschen
+    // diese Dateien (Bilder, PDFs, Aufnahmen) darf das Aufräumen nicht löschen
+    target.blobIds = [...fileIdsOf(doc.pages), ...(target.recordings || []).map((r) => r.blobId)];
     target.thumbStale = thumbDirty; // merken, falls die App vor dem nächsten Vorschaubild beendet wird
   }
   let thumbs = null;
@@ -1655,10 +1983,12 @@ function showTitle() {
   document.title = note ? `${note.title || 'Ohne Titel'} – Federleicht` : 'Federleicht';
 }
 
-async function openNote(id, savedView = null) {
-  await leaveNote();
+async function openNote(id, savedView = null, focus = null) {
   const meta = await store.getNote(id);
   if (!meta || meta.deletedAt) return false;
+  // Gesperrte Notiz (oder in gesperrtem Ordner): erst PIN (siehe lock.js)
+  if (lock.isNoteLocked(meta, await store.getAllFolders()) && !(await lock.unlock('Notiz gesperrt'))) return false;
+  await leaveNote();
   const loaded = (await store.getPages(meta.pageIds || [])).map(store.unpackPage);
 
   stopScrollAnimation();
@@ -1681,7 +2011,14 @@ async function openNote(id, savedView = null) {
 
   // Ansicht: wie beim letzten Mal, sonst Seite 1 in voller Breite
   view.setContentHeight(doc.height + END_SPACE);
-  if (!restoreView(savedView)) {
+  if (focus && doc.pages[focus.pageIndex]) {
+    // Aus der Suche: genau zur Fundstelle und sie kurz aufleuchten lassen
+    view.fitToWidth();
+    const top = doc.top(focus.pageIndex);
+    const [, y0, , y1] = focus.box;
+    view.y = view.height / 2 - (top + (y0 + y1) / 2) * view.scale;
+    view.clamp();
+  } else if (!restoreView(savedView)) {
     view.fitToWidth();
     view.y = view.yFor(0);
     view.clamp();
@@ -1693,7 +2030,23 @@ async function openNote(id, savedView = null) {
   renderer.renderNow();
   saveSession();
   if (noteDirty || thumbDirty) saveNow({ thumbs: true });
+  if (focus) flashFound(focus);
   return true;
+}
+
+// Fundstelle der Suche markieren (leuchtender Rahmen, verblasst nach ein paar Sekunden)
+function flashFound({ pageIndex, box }) {
+  const top = doc.top(pageIndex);
+  const pad = 8;
+  const [ax, ay] = view.toScreen(box[0] - pad, box[1] - pad + top);
+  const [bx, by] = view.toScreen(box[2] + pad, box[3] + pad + top);
+  const el = document.createElement('div');
+  el.className = 'found-flash';
+  Object.assign(el.style, { left: `${ax}px`, top: `${ay}px`, width: `${bx - ax}px`, height: `${by - ay}px` });
+  stage.appendChild(el);
+  const remove = () => el.remove();
+  setTimeout(remove, 3200);
+  stage.addEventListener('pointerdown', remove, { once: true });
 }
 
 // Neue Notiz (im gerade offenen Ordner) anlegen und gleich öffnen
@@ -1731,6 +2084,9 @@ async function leaveNote() {
   lasso.clear();
   assist.reset();
   laser.clear();
+  areaPick.cancel();
+  mathHelp.close();
+  await audio.leave(); // läuft eine Aufnahme, wird sie jetzt gespeichert
   if (current) app.endStroke();
   if (erasing) app.endErase();
   const leaving = note;
@@ -1750,13 +2106,19 @@ async function goHome() {
 }
 
 home = setupHome({
-  openNote: (id) => openNote(id),
+  openNote: (id, focus) => openNote(id, null, focus),
   createNote,
   createNoteFromPdf,
   darkPaper: () => renderer.darkPaper,
 });
 
 document.getElementById('btn-home').addEventListener('click', goHome);
+
+// Wieder gesperrt (App verlassen, "Jetzt sperren") und eine gesperrte Notiz ist offen -> zum Startbildschirm
+lock.onLockChange(async (open) => {
+  if (open || !note) return;
+  if (lock.isNoteLocked(note, await store.getAllFolders())) goHome();
+});
 
 titleButton.addEventListener('click', async () => {
   if (!note) return;
