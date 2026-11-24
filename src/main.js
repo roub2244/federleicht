@@ -38,6 +38,7 @@ import { setupRuler } from './ruler.js';
 import * as lock from './lock.js';
 import { setupAssist } from './assist.js';
 import { convertHandwriting } from './convert.js';
+import { setupAudio } from './audio.js';
 
 // ---------- Einstellungen ----------
 // Farbe, Dicke, Stiftart usw. kommen aus der Werkzeugleiste (siehe tools.js)
@@ -57,6 +58,26 @@ const renderer = new Renderer(canvas, view, doc);
 const laser = setupLaser({ stage, view, tools }); // Laserpointer (siehe laser.js)
 const areaPick = setupAreaPick({ stage, view, doc }); // Bereich wählen (Zu Text, Mathe-Hilfe)
 const ruler = setupRuler({ stage, view, onChange: () => applyRulerButton() }); // Lineal und Geodreieck
+// Sprachaufnahme mit Schrift-Sync (siehe audio.js)
+const audio = setupAudio({
+  stage,
+  doc,
+  view,
+  renderer,
+  getNote: () => note,
+  onChanged(contentChanged) {
+    if (contentChanged) markDirty([], true);
+    applyRecordButton();
+  },
+  scrollToStroke(pageIndex, s) {
+    // Nur scrollen, wenn der Strich gerade nicht (ganz) zu sehen ist
+    const top = doc.top(pageIndex);
+    const [, y0] = view.toScreen(s.box.minX, s.box.minY + top);
+    const [, y1] = view.toScreen(s.box.maxX, s.box.maxY + top);
+    if (y0 > 70 && y1 < view.height - 90) return;
+    animateViewY(view.height * 0.4 - (top + (s.box.minY + s.box.maxY) / 2) * view.scale);
+  },
+});
 
 let current = null;      // der Strich, der gerade geschrieben wird
 let currentPage = null;  // ... auf dieser Seite
@@ -119,6 +140,14 @@ const app = {
     }
     // Lasso: statt zu zeichnen eine Auswahl-Schlinge ziehen (siehe lasso.js)
     if (tools.tool === 'lasso') return lasso.penDown(point);
+    // Aufnahme wird abgespielt: Strich antippen springt zu der Stelle im Ton
+    if (audio.playing && (tools.tool === 'pen' || tools.tool === 'highlighter')) {
+      const i = doc.indexAt(point[1]);
+      if (audio.tapSeek(doc.pages[i], [point[0], point[1] - doc.top(i)])) {
+        swallowPen = true;
+        return;
+      }
+    }
     // Der Strich gehört zu der Seite, auf der er anfängt (in der Lücke: die nähere)
     const index = doc.indexAt(point[1]);
     currentPage = doc.pages[index];
@@ -401,6 +430,7 @@ function beginStroke(point, pointerType) {
     z: nextZ++,
   });
   assist?.strokeStarted(currentPage, point);
+  current.recStart = audio.stamp(); // läuft eine Aufnahme? Dann merkt sich der Strich die Zeit
   // Am Lineal angesetzt? Dann läuft der Strich als gerade Linie an der Kante entlang
   const snap = ruler.on ? ruler.snapStart(toDoc(point), style.size) : null;
   if (snap) {
@@ -429,6 +459,11 @@ function finishCurrentStroke() {
     delete current.ruled;
   }
   if (!current.simulatePressure) lift.learn();
+  if (current.recStart) {
+    const end = audio.stamp();
+    if (end && end.id === current.recStart.id) current.rec = [end.id, current.recStart.t, Math.max(current.recStart.t, end.t)];
+  }
+  delete current.recStart;
   finishStroke(current);
   if (current.box && doc.pages.includes(currentPage)) {
     currentPage.strokes.push(current); // hat das höchste z, gehört also ans Ende
@@ -835,6 +870,30 @@ function startFling(vx, vy) {
     const stuck = Math.abs(view.x - bx) < 0.01 && Math.abs(view.y - by) < 0.01;
     if (Math.hypot(vx, vy) < 0.03 || stuck) return stopScrollAnimation();
     scrollFrame = requestAnimationFrame(step);
+  };
+  scrollFrame = requestAnimationFrame(step);
+}
+
+// Sanft zu einer Höhe scrollen (z. B. beim Abspielen einer Aufnahme der Schrift folgen)
+function animateViewY(y) {
+  if (current || viewLocked) return;
+  stopScrollAnimation();
+  const from = view.y;
+  const saved = view.y;
+  view.y = y;
+  view.clamp();
+  const target = view.y;
+  view.y = saved;
+  if (Math.abs(target - from) < 1) return;
+  const start = performance.now();
+  scrolling = true;
+  const step = (now) => {
+    const t = Math.min(1, (now - start) / 420);
+    view.y = from + (target - from) * (1 - Math.pow(1 - t, 3));
+    view.clamp();
+    afterViewChange();
+    if (t < 1) scrollFrame = requestAnimationFrame(step);
+    else stopScrollAnimation();
   };
   scrollFrame = requestAnimationFrame(step);
 }
@@ -1558,6 +1617,34 @@ moreEntries.push({
     },
 });
 
+// ---------- Sprachaufnahme (siehe audio.js) ----------
+const recordButton = document.getElementById('btn-record');
+const MIC_ICON = '<svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg>';
+function applyRecordButton() {
+  recordButton.classList.toggle('on', audio.recording);
+  recordButton.classList.toggle('rec-live', audio.recording);
+  recordButton.setAttribute('aria-pressed', String(audio.recording));
+}
+function openRecordPanel(anchor) {
+  closeAllPopups();
+  audio.openPanel(anchor);
+}
+recordButton.addEventListener('click', () => openRecordPanel(recordButton));
+moreEntries.push({
+  group: 'Notiz',
+  row: () =>
+    note && {
+      icon: MIC_ICON,
+      label: audio.recording ? 'Aufnahme läuft …' : 'Sprachaufnahme',
+      hint: audio.recording
+        ? 'Tippen für Aufnahmen und Einstellungen'
+        : `Ton aufnehmen, die Schrift läuft beim Abspielen mit${note.recordings?.length ? ` · ${note.recordings.length} gespeichert` : ''}`,
+      on: audio.recording,
+      run: () => openRecordPanel(document.getElementById('btn-more')),
+    },
+});
+applyRecordButton();
+
 // Alle kleinen Menüs oben zu
 function closeAllPopups() {
   closeOptions();
@@ -1741,7 +1828,8 @@ async function writeNote(forceThumbs) {
     target.pageIds = ids;
     target.pageCount = ids.length;
     target.firstTemplate = { ...doc.pages[0].template };
-    target.blobIds = fileIdsOf(doc.pages); // diese Dateien (Bilder, PDFs) darf das Aufräumen nicht löschen
+    // diese Dateien (Bilder, PDFs, Aufnahmen) darf das Aufräumen nicht löschen
+    target.blobIds = [...fileIdsOf(doc.pages), ...(target.recordings || []).map((r) => r.blobId)];
     target.thumbStale = thumbDirty; // merken, falls die App vor dem nächsten Vorschaubild beendet wird
   }
   let thumbs = null;
@@ -1946,6 +2034,7 @@ async function leaveNote() {
   assist.reset();
   laser.clear();
   areaPick.cancel();
+  await audio.leave(); // läuft eine Aufnahme, wird sie jetzt gespeichert
   if (current) app.endStroke();
   if (erasing) app.endErase();
   const leaving = note;

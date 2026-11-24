@@ -10,7 +10,8 @@
 // nur die Seiten, die gerade auf dem Bildschirm zu sehen sind.
 
 import { PAGE_WIDTH, PAGE_HEIGHT } from './view.js';
-import { fillStroke, setInkTheme } from './ink.js';
+import { fillStroke, setInkTheme, finishStroke } from './ink.js';
+import { partialStroke } from './audio.js';
 import { drawTemplate, paperColor } from './templates.js';
 import { drawBackground, pageDark } from './media.js';
 
@@ -40,6 +41,7 @@ export class Renderer {
     this.lastBox = null;   // wo das Overlay zuletzt war
     this.frame = 0;
     this.onRender = null;  // wird nach jedem kompletten Neumalen aufgerufen
+    this.strokeView = null; // beim Abspielen einer Aufnahme: wie wird ein Strich gemalt? (siehe audio.js)
     this.onBackgrounds = null; // bekommt die sichtbaren PDF-Seiten (zum scharf Nachmalen, siehe pdfdoc.js)
     this.readColors();
   }
@@ -190,7 +192,9 @@ export class Renderer {
       for (const s of this.doc.pages[i].strokes) {
         const b = s.box;
         if (!b || s.hidden || b.maxX < vis.x0 || b.minX > vis.x1 || b.maxY < y0 || b.minY > y1) continue;
-        fillStroke(c, s);
+        const sv = this.strokeView?.(s);
+        if (sv) drawViewed(c, s, sv);
+        else fillStroke(c, s);
       }
       c.restore();
     }
@@ -277,6 +281,25 @@ export class Renderer {
       maxY: Math.min(this.canvas.height, Math.ceil((box.maxY + pad) * d)),
     };
   }
+}
+
+// Strich beim Abspielen einer Aufnahme: ausgeblendet, blass oder erst teilweise geschrieben
+function drawViewed(c, s, sv) {
+  if (sv.hide) return;
+  const strokeLike = s.tool !== 'text' && s.tool !== 'image' && s.tool !== 'fill' && s.points?.length;
+  if (!strokeLike) {
+    if (sv.alpha) {
+      c.save();
+      c.globalAlpha = sv.alpha;
+      fillStroke(c, s);
+      c.restore();
+    } else if (!sv.partial) fillStroke(c, s);
+    return;
+  }
+  if (!s.layers) finishStroke(s);
+  if (!s.layers) return;
+  if (sv.alpha) fillStroke(c, s, { layers: s.layers.map((l) => ({ path: l.path, alpha: l.alpha * sv.alpha })) });
+  if (sv.partial !== undefined && sv.partial > 0) fillStroke(c, partialStroke(s, sv.partial));
 }
 
 function unionBox(a, b) {
