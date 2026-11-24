@@ -7,9 +7,9 @@
 //  3. Solange du die Spitze unten lässt, kannst du das Ende noch verschieben.
 //     Beim Abheben ist die Linie fertig.
 
-export const HOLD_MS = 550;        // so lange stillhalten (Millisekunden)
+export const HOLD_MS = 650;        // so lange stillhalten (Millisekunden)
 const HOLD_TOLERANCE = 6;          // so viele Bildschirm-Pixel darf die Hand dabei zittern
-const MIN_LENGTH = 24;             // kürzere Striche (z. B. i-Punkte) werden nicht begradigt
+const MIN_LENGTH = 40;             // kürzere Striche (i-Punkte, l, t, 1 beim Schreiben) werden nicht begradigt
 
 // Punkte auf einer geraden Strecke von a nach b erzeugen.
 // perfect-freehand braucht mehrere Punkte, sonst wird die Linie ungleichmäßig.

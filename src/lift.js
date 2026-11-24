@@ -15,12 +15,15 @@
 
 // So weit (Bildschirm-Pixel) darf der Stift mit ganz leichtem Druck rutschen,
 // bevor wir sagen: "Der ist abgesetzt."
-const LIFT_DISTANCE = 6;
+// Wichtig: Schwelle und Strecke sind bewusst klein/vorsichtig. Schnelle, leichte Aufstriche
+// beim Schreiben (Verbindungen zwischen Buchstaben) sind ECHTE Schrift und dürfen nie
+// wegfallen – früher wurden sie bei leichter Hand zerschnitten.
+const LIFT_DISTANCE = 10;
 // Abhebe-Schwelle = so viel vom typischen Schreibdruck ...
-const LIFT_RATIO = 0.25;
+const LIFT_RATIO = 0.15;
 // ... aber nie weniger / mehr als das (Druck geht von 0 bis 1)
-const LIFT_MIN = 0.015;
-const LIFT_MAX = 0.05;
+const LIFT_MIN = 0.01;
+const LIFT_MAX = 0.03;
 // Wieder aufsetzen (nach einem erkannten Abheben) braucht etwas mehr Druck – sonst flackert es
 const RETOUCH_FACTOR = 1.5;
 // Leichtes Anschleifen am Anfang: so viel (Pixel) davon bleibt vor dem ersten festen Punkt stehen

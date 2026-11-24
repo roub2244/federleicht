@@ -580,3 +580,39 @@ export const SHAPE_NAMES = {
   line: 'Linie', arrow: 'Pfeil', angle: 'Winkel', circle: 'Kreis', ellipse: 'Ellipse', rect: 'Rechteck',
   square: 'Quadrat', diamond: 'Raute', triangle: 'Dreieck', pentagon: 'Fünfeck', hexagon: 'Sechseck', polygon: 'Vieleck',
 };
+
+// ---------- Schutz: Schrift ist keine Form ----------
+// Beim Schreiben bleibt der Stift oft kurz stehen (Nachdenken mitten im Wort).
+// Ohne diesen Schutz wurde dann z. B. ein ganzes "lele" zu einer Ellipse.
+// Eine Form passt nur, wenn
+//   - der Strich sich nicht viel öfter dreht als eine Form (Schrift kringelt hin und her)
+//   - der gezeichnete Strich wirklich nah an der erkannten Form liegt
+export function fitsShape(points, shape) {
+  if (!shape || points.length < 2) return false;
+  const pts = resample(points, 96);
+  const box = boundsOf(pts);
+  const diag = Math.hypot(box.maxX - box.minX, box.maxY - box.minY);
+  if (diag < 1) return false;
+  // 1. Wie viel dreht sich der Strich insgesamt (Richtungswechsel aufaddiert)?
+  //    Kreis/Rechteck ≈ 1 Umdrehung, Pfeil ≈ 1, Schrift meist 2 und mehr.
+  const coarse = simplify(pts, diag * 0.03);
+  let turning = 0;
+  for (let i = 1; i < coarse.length - 1; i++) {
+    const a = Math.atan2(coarse[i][1] - coarse[i - 1][1], coarse[i][0] - coarse[i - 1][0]);
+    const b = Math.atan2(coarse[i + 1][1] - coarse[i][1], coarse[i + 1][0] - coarse[i][0]);
+    turning += Math.abs(Math.atan2(Math.sin(b - a), Math.cos(b - a)));
+  }
+  if (turning > 1.6 * 2 * Math.PI) return false;
+  // 2. Liegt der Strich auf der Form? (Durchschnitt und schlimmste Stelle)
+  if (shape.kind === 'line') return true; // Linie prüft recognizeShape schon selbst (isStraightish)
+  const outline = shape.closed ? [...shape.pts, shape.pts[0]] : shape.pts;
+  let sum = 0;
+  let worst = 0;
+  for (const p of pts) {
+    let d = Infinity;
+    for (let i = 1; i < outline.length; i++) d = Math.min(d, segmentDistance(p, outline[i - 1], outline[i]));
+    sum += d;
+    worst = Math.max(worst, d);
+  }
+  return sum / pts.length < diag * 0.06 && worst < diag * 0.2;
+}
