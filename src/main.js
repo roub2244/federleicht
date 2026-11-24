@@ -34,6 +34,7 @@ import { setupToolbarConfig } from './toolbarconfig.js';
 import { setupMoreMenu } from './moremenu.js';
 import { openOptions, closeOptions, optionsOpen } from './optionspopup.js';
 import { setupAreaPick } from './areapick.js';
+import { setupRuler } from './ruler.js';
 import { setupAssist } from './assist.js';
 import { convertHandwriting } from './convert.js';
 
@@ -54,6 +55,7 @@ const view = new View();                  // Zoom und Verschiebung
 const renderer = new Renderer(canvas, view, doc);
 const laser = setupLaser({ stage, view, tools }); // Laserpointer (siehe laser.js)
 const areaPick = setupAreaPick({ stage, view, doc }); // Bereich wählen (Zu Text, Mathe-Hilfe)
+const ruler = setupRuler({ stage, view, onChange: () => applyRulerButton() }); // Lineal und Geodreieck
 
 let current = null;      // der Strich, der gerade geschrieben wird
 let currentPage = null;  // ... auf dieser Seite
@@ -150,6 +152,16 @@ const app = {
       if (points.length === 0) return drawCurrentStroke(predicted);
     }
     const last = points[points.length - 1];
+
+    // Am Lineal: die Linie folgt dem Stift, aber immer genau an der Kante
+    if (current.ruled) {
+      const { snap, a, pressure } = current.ruled;
+      const b = ruler.project(snap, toDoc(last));
+      current.points = densify([toLocal(a), toLocal(b)], false, pressure, 2.5);
+      ruler.showMeasure(a, b);
+      drawCurrentStroke([]);
+      return;
+    }
 
     // Schon zur Form geworden? Dann folgt die Form dem Stift (Linie: das Ende; Kreis, Rechteck …:
     // größer/kleiner und drehen, solange die Spitze unten bleibt)
@@ -352,6 +364,22 @@ const app = {
     textEditor.create(page, x, y, nextZ++, w, true);
   },
 
+  // ---------- Lineal / Geodreieck (siehe ruler.js) ----------
+  rulerHit(sx, sy) {
+    return ruler.hitScreen(sx, sy);
+  },
+  // Finger auf dem Lineal: verschieben (Bildschirm-Pixel) und drehen (um den Finger-Mittelpunkt)
+  rulerGesture(dx, dy, dAngle, cx, cy) {
+    ruler.moveBy(dx / view.scale, dy / view.scale);
+    if (dAngle) {
+      const [px, py] = view.toPage(cx, cy);
+      ruler.rotateBy(dAngle, px, py);
+    }
+  },
+  rulerGestureEnd() {
+    ruler.gestureEnd();
+  },
+
   // Scroll-Sperre an? (dann kein Zoomen und kein seitliches Verrutschen, siehe input.js)
   isLocked() {
     return viewLocked;
@@ -372,6 +400,17 @@ function beginStroke(point, pointerType) {
     z: nextZ++,
   });
   assist?.strokeStarted(currentPage, point);
+  // Am Lineal angesetzt? Dann läuft der Strich als gerade Linie an der Kante entlang
+  const snap = ruler.on ? ruler.snapStart(toDoc(point), style.size) : null;
+  if (snap) {
+    const a = ruler.project(snap, toDoc(point));
+    current.ruled = { snap, a, pressure: current.simulatePressure ? 0.5 : Math.max(0.45, point[2]) };
+    current.straight = true;
+    current.shape = 'line';
+    current.points = densify([toLocal(a), toLocal(a)], false, current.ruled.pressure, 2.5);
+    drawCurrentStroke([]);
+    return;
+  }
   lift.reset();
   steady.reset(point);
   current.points.push(inkPoint(point));
@@ -384,6 +423,10 @@ function beginStroke(point, pointerType) {
 function finishCurrentStroke() {
   hold.stop();
   if (!current) return;
+  if (current.ruled) {
+    ruler.showMeasure(null);
+    delete current.ruled;
+  }
   if (!current.simulatePressure) lift.learn();
   finishStroke(current);
   if (current.box && doc.pages.includes(currentPage)) {
@@ -844,6 +887,7 @@ function afterViewChange() {
   laser.redraw();
   assist?.redraw();
   areaPick.redraw();
+  ruler.redraw();
   zoomButton.textContent = `${Math.round((view.scale / view.fitScale) * 100)} %`;
   pages?.onViewChange();
   scheduleSession();
@@ -1385,6 +1429,39 @@ function openAssistOptions() {
   });
 }
 applyAssistButton();
+
+// ---------- Lineal und Geodreieck (siehe ruler.js) ----------
+const rulerButton = document.getElementById('btn-ruler');
+function applyRulerButton() {
+  rulerButton.classList.toggle('on', ruler.on);
+  rulerButton.setAttribute('aria-pressed', String(ruler.on));
+}
+// Aus -> antippen legt es aufs Blatt. An -> antippen öffnet die Einstellungen.
+rulerButton.addEventListener('click', () => {
+  if (optionsOpen(rulerButton)) return closeOptions();
+  closeAllPopups();
+  if (!ruler.on) {
+    ruler.show();
+    toast(`${ruler.kind === 'ruler' ? 'Lineal' : 'Geodreieck'}: 1 Finger verschiebt, 2 Finger drehen – Stift an die Kante = gerade Linie`);
+    return;
+  }
+  openOptions(rulerButton, {
+    title: 'Lineal und Geodreieck',
+    rows: [
+      { type: 'switch', key: 'on', main: true, label: 'Auf dem Blatt', hint: '1 Finger verschiebt, 2 Finger drehen. Stift an die Kante setzen = gerade Linie mit Länge in cm' },
+      { type: 'seg', key: 'kind', label: 'Form', options: [['triangle', 'Geodreieck'], ['ruler', 'Lineal']] },
+      { type: 'button', key: 'level', label: 'Gerade hinlegen (0°)', closes: false, run: () => ruler.level() },
+      { type: 'button', key: 'center', label: 'In die Mitte holen', run: () => ruler.center() },
+      { type: 'note', text: 'Beim Drehen rastet es bei 0°, 15°, 30°, 45° … leicht ein. Der Winkel steht in der Mitte.' },
+    ],
+    get: (key) => (key === 'on' ? ruler.on : ruler.kind),
+    set(key, value) {
+      if (key === 'on') return value ? ruler.show() : ruler.hide();
+      if (key === 'kind') ruler.setKind(value);
+    },
+  });
+});
+applyRulerButton();
 
 // Handschrift in Text umwandeln: die Lasso-Auswahl, sonst alles auf der Seite in der Mitte
 async function convertInk(page, strokes) {

@@ -86,6 +86,7 @@ export function setupInput(canvas, app) {
   let lastPenTime = -Infinity;
   const touches = new Map(); // aktive Finger: pointerId -> [x, y]
   const ignored = new Set(); // als Handballen erkannte Berührungen
+  let rulerGesture = false;  // die Finger bewegen gerade das Lineal (siehe ruler.js)
 
   // "Pointer Capture": alle weiteren Events dieses Stifts/Fingers kommen bei uns an,
   // auch wenn er kurz über den Rand der Zeichenfläche rutscht.
@@ -416,6 +417,8 @@ export function setupInput(canvas, app) {
       capture(id);
       touches.set(id, screenPos(e));
       lockAnchor = null; // neuer Finger -> Geste beginnt neu
+      // Erster Finger auf dem Lineal/Geodreieck: diese Geste bewegt das Lineal, nicht die Seite
+      if (touches.size === 1) rulerGesture = Boolean(app.rulerHit?.(...screenPos(e)));
       if (touches.size === 1) {
         multiTouch = false;
         flingSamples = [];
@@ -435,6 +438,14 @@ export function setupInput(canvas, app) {
 
     if (ended) {
       touches.delete(id);
+      if (rulerGesture) {
+        if (touches.size === 0) {
+          rulerGesture = false;
+          app.rulerGestureEnd?.();
+        }
+        fingerTap = null;
+        return 'Lineal';
+      }
       // Kurzes Tippen mit dem Finger beim Text-Werkzeug (oder während ein Textfeld offen ist)
       if (fingerTap?.id === id && e.type === 'pointerup' && (app.textMode() || app.textEditing())) {
         const moved = Math.hypot(e.clientX - fingerTap.x, e.clientY - fingerTap.y);
@@ -468,6 +479,13 @@ export function setupInput(canvas, app) {
     if (touches.size === 1) {
       flingSamples.push({ t: e.timeStamp, x: after.cx, y: after.cy });
       if (flingSamples.length > 8) flingSamples.shift();
+    }
+
+    // Lineal: 1 Finger verschiebt, 2 Finger verschieben und drehen
+    if (rulerGesture) {
+      const turn = before.dist > 0 && after.dist > 0 ? after.angle - before.angle : 0;
+      app.rulerGesture?.(after.cx - before.cx, after.cy - before.cy, Math.atan2(Math.sin(turn), Math.cos(turn)), after.cx, after.cy);
+      return 'Lineal';
     }
 
     if (app.isLocked()) {
@@ -553,11 +571,12 @@ export function setupInput(canvas, app) {
 // Mitte (cx, cy) und Abstand (dist) der ersten zwei Finger
 function gesture(touches) {
   const pts = [...touches.values()];
-  if (pts.length === 1) return { cx: pts[0][0], cy: pts[0][1], dist: 0 };
+  if (pts.length === 1) return { cx: pts[0][0], cy: pts[0][1], dist: 0, angle: 0 };
   const [a, b] = pts;
   return {
     cx: (a[0] + b[0]) / 2,
     cy: (a[1] + b[1]) / 2,
     dist: Math.hypot(a[0] - b[0], a[1] - b[1]),
+    angle: Math.atan2(b[1] - a[1], b[0] - a[0]),
   };
 }

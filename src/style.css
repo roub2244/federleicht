@@ -4741,3 +4741,11 @@ select.dlg-input {
 .area-picking #canvas {
   cursor: crosshair;
 }
+
+/* ---------- Lineal und Geodreieck (ruler.js) ---------- */
+.ruler-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 2;
+}
