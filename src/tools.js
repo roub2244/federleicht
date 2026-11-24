@@ -40,14 +40,25 @@ export const SIZE_RANGE = {
   brush: { min: 4, max: 32 },
   highlighter: { min: 8, max: 44 },
   shape: { min: 0.8, max: 12 },
+  laser: { min: 2, max: 24 }, // Bildschirm-Pixel (Breite des Leuchtstrahls)
   eraser: { min: 6, max: 50 }, // Bildschirm-Pixel (Radius)
 };
+
+// Laserpointer: kräftige, leuchtende Farben
+export const LASER_COLORS = ['#ff2d55', '#ff9500', '#ffd60a', '#34c759', '#00c7be', '#0a84ff', '#bf5af2', '#ffffff'];
+
+// Wie lange die Laser-Spur nach dem Abheben stehen bleibt, bevor sie verblasst (Sekunden)
+export const LASER_DURATIONS = [
+  { value: 0.5, name: 'Kurz' },
+  { value: 1.5, name: 'Mittel' },
+  { value: 4, name: 'Lang' },
+];
 
 export const MAX_FAVORITES = 5;
 const MAX_RECENT = 8;
 
 const DEFAULTS = {
-  tool: 'pen',            // 'pen' | 'highlighter' | 'eraser' | 'text' | 'shape' | 'lasso' | 'fill'
+  tool: 'pen',            // 'pen' | 'highlighter' | 'eraser' | 'text' | 'shape' | 'lasso' | 'fill' | 'laser'
   penType: 'ballpoint',   // Kuli ist der Standard-Stift
   pens: {
     ballpoint: { color: '#000000', size: 1.8 },
@@ -60,13 +71,16 @@ const DEFAULTS = {
   text: { f: 'sans', s: 22.4, c: '#000000' },
   shape: { kind: 'rect', color: '#1971c2', size: 2.4, fill: 'none' }, // Formen-Werkzeug (siehe shapes.js)
   fill: { color: '#fab005', alpha: 1 },  // Farbeimer (siehe fill.js)
+  laser: { color: '#ff2d55', size: 7, mode: 'trail', duration: 1.5 }, // Laserpointer (siehe laser.js): 'trail' = Spur, 'dot' = nur Punkt
   lasso: { mode: 'free', what: 'all' },  // Lasso: Freihand oder Rechteck; alles, nur Handschrift oder nur Text // Schrift für neue Textfelder (s in Seiten-Einheiten, 22,4 = 14 pt)
   straighten: true,       // gerade Linien durch Stillhalten am Strichende
+  assist: false,          // Handschrifthilfe: Zeilen geraderücken, Hilfslinie (siehe assist.js)
   recent: [],             // zuletzt benutzte eigene Farben
   favorites: [],          // Lieblingsstifte: { type, color, size, opacity? }
 };
 
 const KEY = 'federleicht.tools.v2';
+export const TOOL_IDS = ['pen', 'highlighter', 'eraser', 'text', 'shape', 'lasso', 'fill', 'laser'];
 
 // Gespeicherte Einstellungen laden. Fehlt etwas (z. B. nach einem Update), nehmen wir den Standard.
 export function loadTools() {
@@ -81,7 +95,7 @@ export function loadTools() {
   return {
     ...DEFAULTS,
     ...saved,
-    tool: ['pen', 'highlighter', 'eraser', 'text', 'shape', 'lasso', 'fill'].includes(saved.tool) ? saved.tool : DEFAULTS.tool,
+    tool: TOOL_IDS.includes(saved.tool) ? saved.tool : DEFAULTS.tool,
     penType: pens[saved.penType] ? saved.penType : DEFAULTS.penType,
     pens,
     highlighter: { ...DEFAULTS.highlighter, ...saved.highlighter },
@@ -90,6 +104,7 @@ export function loadTools() {
     shape: { ...DEFAULTS.shape, ...saved.shape },
     lasso: { ...DEFAULTS.lasso, ...saved.lasso },
     fill: { ...DEFAULTS.fill, ...saved.fill },
+    laser: { ...DEFAULTS.laser, ...saved.laser },
     recent: Array.isArray(saved.recent) ? saved.recent : [],
     favorites: Array.isArray(saved.favorites) ? saved.favorites : [],
   };
@@ -114,6 +129,7 @@ export function activeStyle(tools) {
 export function settingsOf(tools, type) {
   if (type === 'shape') return tools.shape;
   if (type === 'fill') return tools.fill;
+  if (type === 'laser') return tools.laser;
   return type === 'highlighter' ? tools.highlighter : tools.pens[type];
 }
 

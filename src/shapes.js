@@ -235,7 +235,9 @@ export function recognizeShape(points, { onlyLine = false } = {}) {
   const start = points[0];
   const end = points[points.length - 1];
   const line = () => ({ kind: 'line', pts: [[start[0], start[1]], [end[0], end[1]]], closed: false, pivot: [start[0], start[1]] });
-  if (onlyLine) return line();
+  // Gerade Linie nur, wenn der Strich wirklich ungefähr gerade war – eine Kurve oder ein
+  // fast fertiger Kreis wird NICHT zur Linie (das wäre komisch).
+  if (onlyLine) return isStraightish(resample(points, 64), 0.12) ? line() : null;
 
   const pts = resample(points, 96);
   const box = boundsOf(pts);
@@ -256,7 +258,46 @@ export function recognizeShape(points, { onlyLine = false } = {}) {
   }
   const closed = total > 1.6 * diag && gap < 0.2 * diag;
   if (closed) return recognizeClosed(pts.slice(0, closeAt + 1), diag);
-  return recognizeOpen(pts, diag, total) || line();
+  const open = recognizeOpen(pts, diag, total);
+  if (open) return open;
+  if (isStraightish(pts, 0.09)) return line();
+  // Fast einmal rundherum (mindestens ~3/4 Kreis), aber nicht ganz geschlossen: Kreis/Ellipse daraus machen
+  if (Math.abs(totalTurn(pts)) > 260 * DEG && total > 1.5 * diag) {
+    const round = recognizeClosed(pts, diag);
+    if (round && (round.kind === 'circle' || round.kind === 'ellipse')) return round;
+  }
+  return null; // zu kurvig für eine Linie -> Strich bleibt, wie er ist
+}
+
+// Ist der Strich "gerade genug" für eine Linie?
+//  - Weg kaum länger als die direkte Strecke (Kurven und Schleifen sind viel länger)
+//  - kein Punkt weiter als maxDev × Länge von der Strecke Anfang–Ende entfernt
+// Ein leicht wackliger Strich ist ok, ein Bogen (z. B. Viertelkreis) nicht.
+export function isStraightish(pts, maxDev = 0.15) {
+  if (pts.length < 2) return false;
+  const a = pts[0];
+  const b = pts[pts.length - 1];
+  const chord = dist(a, b);
+  if (chord < 1e-6) return false;
+  if (chord < pathLength(pts) * 0.85) return false;
+  let worst = 0;
+  for (const p of pts) worst = Math.max(worst, segmentDistance(p, a, b));
+  return worst <= chord * maxDev;
+}
+
+// Wie weit dreht sich der Strich insgesamt? (Bogenmaß, Kreis = 2π)
+function totalTurn(pts) {
+  let sum = 0;
+  let prev = null;
+  for (let i = 1; i < pts.length; i++) {
+    const dx = pts[i][0] - pts[i - 1][0];
+    const dy = pts[i][1] - pts[i - 1][1];
+    if (Math.hypot(dx, dy) < 1e-6) continue;
+    const ang = Math.atan2(dy, dx);
+    if (prev !== null) sum += Math.atan2(Math.sin(ang - prev), Math.cos(ang - prev));
+    prev = ang;
+  }
+  return sum;
 }
 
 // ---------- Geschlossene Formen ----------
@@ -504,7 +545,9 @@ function recognizeOpen(pts, diag, total) {
     const l1 = dist(a, b);
     const l2 = dist(b, c);
     const turn = turnAt(v, 1);
-    if (l1 > total * 0.2 && l2 > total * 0.2 && turn > 30 * DEG && turn < 160 * DEG) {
+    // Beide Schenkel müssen wirklich gerade sein (ein Bogen ist kein Winkel)
+    const straightLegs = pts.every((p) => Math.min(segmentDistance(p, a, b), segmentDistance(p, b, c)) < diag * 0.04);
+    if (straightLegs && l1 > total * 0.2 && l2 > total * 0.2 && turn > 30 * DEG && turn < 160 * DEG) {
       const pts2 = [a, b, c].map((p) => [p[0], p[1]]);
       // Fast waagerecht/senkrecht -> genau
       for (const [i, j] of [[0, 1], [1, 2]]) {

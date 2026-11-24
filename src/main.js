@@ -30,6 +30,10 @@ import { setupMediaMenu } from './mediamenu.js';
 import { setupClaudeMenu } from './claudemenu.js';
 import { computeFill, createFill } from './fill.js';
 import { openImageEditor } from './imageeditor.js';
+import { setupLaser } from './laser.js';
+import { setupToolbarConfig } from './toolbarconfig.js';
+import { setupAssist } from './assist.js';
+import { convertHandwriting } from './convert.js';
 
 // ---------- Einstellungen ----------
 // Farbe, Dicke, Stiftart usw. kommen aus der Werkzeugleiste (siehe tools.js)
@@ -47,6 +51,7 @@ const doc = new NoteDocument(loadJSON('pageTemplate', DEFAULT_TEMPLATE));
 const view = new View();                  // Zoom und Verschiebung
 const renderer = new Renderer(canvas, view, doc);
 const debug = new Debug(document.getElementById('debug'), renderer);
+const laser = setupLaser({ stage, view, tools }); // Laserpointer (siehe laser.js)
 
 let current = null;      // der Strich, der gerade geschrieben wird
 let currentPage = null;  // ... auf dieser Seite
@@ -62,6 +67,8 @@ let shapeDrag = null;    // Formen-Werkzeug: Form wird gerade aufgezogen { start
 let swallowPen = false;  // dieser Stift-Strich hebt nur eine Auswahl auf (z. B. ein eingefügtes Bild) – nichts malen
 let mediaMenu = null;    // Menüs "Einfügen" und "Teilen" (siehe mediamenu.js)
 let claudeMenu = null;   // Claude-Knopf (siehe claudemenu.js)
+let assist = null;       // Handschrifthilfe (siehe assist.js), wird weiter unten eingerichtet
+let lasering = false;    // Laserpointer: Stift liegt gerade auf (siehe laser.js)
 
 // Rückgängig/Wiederholen: bei jeder Änderung die Knöpfe an- oder ausgrauen
 const history = new History(() => {
@@ -88,6 +95,11 @@ const app = {
   startStroke(point, pointerType) {
     liftedPointer = null;
     swallowPen = false;
+    // Laserpointer: leuchtende Spur, die nicht gespeichert wird
+    if (tools.tool === 'laser') {
+      lasering = true;
+      return laser.down(point);
+    }
     // Etwas ausgewählt (z. B. gerade eingefügtes Bild) und daneben getippt: nur die Auswahl aufheben
     if (tools.tool !== 'lasso' && lasso.active) {
       lasso.clear();
@@ -112,6 +124,7 @@ const app = {
 
   extendStroke(points, predicted) {
     if (points.length === 0 || swallowPen) return;
+    if (lasering) return laser.move(points);
     if (tools.tool === 'lasso') return lasso.penMove(points);
     if (shapeDrag) return updateShapeDrag(toLocal(points[points.length - 1]));
     points = points.map(toLocal);
@@ -171,6 +184,10 @@ const app = {
 
   endStroke() {
     liftedPointer = null;
+    if (lasering) {
+      lasering = false;
+      return laser.up();
+    }
     if (swallowPen) {
       swallowPen = false;
       return;
@@ -259,6 +276,11 @@ const app = {
     }
   },
 
+  // Stift schwebt über dem Blatt (Bildschirm-Position, null = weg): beim Laserpointer zeigt ein Punkt, wohin du zeigst
+  penHover(pos) {
+    if (tools.tool === 'laser' || !pos) laser.hover(tools.tool === 'laser' ? pos : null);
+  },
+
   // Stiftknopf in der Luft lange gehalten -> Schnellmenü-Rad an dieser Stelle öffnen
   openQuickMenu(x, y) {
     toolbar.closePopup();
@@ -338,6 +360,7 @@ function beginStroke(point, pointerType) {
     simulatePressure: pointerType !== 'pen',
     z: nextZ++,
   });
+  assist?.strokeStarted(currentPage, point);
   lift.reset();
   steady.reset(point);
   current.points.push(inkPoint(point));
@@ -358,6 +381,7 @@ function finishCurrentStroke() {
     history.push({ strokes: [{ page: currentPage, added: [current], removed: [] }] });
     pages.strokesChanged();
     markDirty([currentPage]);
+    assist?.strokeAdded(currentPage, current);
   } else {
     renderer.setOverlay(null);
   }
@@ -656,6 +680,7 @@ function undo() {
   if (textEditor?.active) return textEditor.undo(); // beim Tippen: Tippen rückgängig
   if (current || erasing || shapeDrag) return; // nicht mitten im Schreiben
   lasso.clear();
+  assist.reset(); // nach Rückgängig nichts mehr automatisch geraderücken
   const action = history.undo();
   if (action) applyAction(action, false);
 }
@@ -806,6 +831,8 @@ function afterViewChange() {
   renderer.requestRender();
   textEditor?.place();
   lasso?.place();
+  laser.redraw();
+  assist?.redraw();
   zoomButton.textContent = `${Math.round((view.scale / view.fitScale) * 100)} %`;
   pages?.onViewChange();
   scheduleSession();
@@ -874,6 +901,7 @@ lasso = setupLasso({
   currentIndex,
   toast,
   onEditImage: editImage,
+  onConvert: (page, items) => convertInk(page, items),
 });
 
 
@@ -1194,6 +1222,7 @@ const toolbar = setupToolbar({
     if (tool !== 'text') textEditor.finish();
     if (tool !== 'lasso') lasso.clear();
     if (tool !== 'eraser') toolBeforeEraser = tool;
+    assist.finish();
     input.setStickyEraser(tool === 'eraser');
   },
   // "Seite leeren" leert die Seite, die gerade in der Mitte zu sehen ist
@@ -1284,6 +1313,56 @@ const wheel = setupWheel({
     saveTools(tools);
     toolbar.update();
   },
+});
+
+// ---------- Handschrifthilfe und Handschrift zu Text (siehe assist.js und convert.js) ----------
+assist = setupAssist({
+  stage,
+  view,
+  doc,
+  renderer,
+  commit: commitChanges,
+  isOn: () => tools.assist,
+});
+const assistButton = document.getElementById('btn-assist');
+function applyAssistButton() {
+  assistButton.classList.toggle('on', tools.assist);
+  assistButton.setAttribute('aria-pressed', String(tools.assist));
+}
+assistButton.addEventListener('click', () => {
+  tools.assist = !tools.assist;
+  saveTools(tools);
+  if (!tools.assist) assist.reset();
+  applyAssistButton();
+  toast(tools.assist ? 'Handschrifthilfe an: Zeilen werden nach dem Schreiben geradegerückt' : 'Handschrifthilfe aus');
+});
+applyAssistButton();
+
+// Handschrift in Text umwandeln: die Lasso-Auswahl, sonst alles auf der Seite in der Mitte
+async function convertInk(page, strokes) {
+  toolbar.closePopup();
+  const items = await convertHandwriting({ page, strokes, commit: commitChanges, newZ: () => nextZ++ });
+  if (items?.length) {
+    toast('In Text umgewandelt – antippen mit dem Text-Werkzeug zum Bearbeiten', { label: 'Rückgängig', run: undo });
+  }
+}
+document.getElementById('btn-convert').addEventListener('click', () => {
+  const sel = lasso.selection;
+  if (sel) {
+    lasso.clear();
+    return convertInk(sel.page, sel.items);
+  }
+  const page = doc.pages[currentIndex()];
+  const ink = page.strokes.filter((s) => s.tool === 'pen' && !s.shape);
+  if (!ink.length) return toast('Hier ist keine Handschrift – erst schreiben oder mit dem Lasso auswählen');
+  convertInk(page, ink);
+});
+
+// ---------- Werkzeugleiste anpassen (siehe toolbarconfig.js) ----------
+const toolbarConfig = setupToolbarConfig();
+document.getElementById('btn-customize').addEventListener('click', () => {
+  toolbar.closePopup();
+  toolbarConfig.open();
 });
 
 undoButton.addEventListener('click', undo);
@@ -1618,13 +1697,13 @@ async function openNote(id, savedView = null) {
 }
 
 // Neue Notiz (im gerade offenen Ordner) anlegen und gleich öffnen
-async function createNote(folderId = null) {
+async function createNote(folderId = null, folderName = null) {
   const tpl = loadJSON('pageTemplate', DEFAULT_TEMPLATE);
   const page = createPage(tpl);
   const now = Date.now();
   const meta = {
     id: store.uid(),
-    title: defaultTitle(),
+    title: defaultTitle(folderName),
     folderId,
     created: now,
     updated: now,
@@ -1639,9 +1718,10 @@ async function createNote(folderId = null) {
   await openNote(meta.id);
 }
 
-function defaultTitle() {
+// Automatischer Titel mit Datum. Im Ordner "Mathe" heißt eine neue Notiz z. B. "Mathe vom 24.11., 08:33".
+function defaultTitle(prefix = null) {
   const d = new Date();
-  return `Notiz vom ${d.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' })}, ${d.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}`;
+  return `${prefix || 'Notiz'} vom ${d.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' })}, ${d.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}`;
 }
 
 // Notiz zumachen: alles speichern. Eine neue, leer gebliebene Notiz wird wieder gelöscht.
@@ -1649,6 +1729,8 @@ async function leaveNote() {
   if (!note) return;
   textEditor.finish();
   lasso.clear();
+  assist.reset();
+  laser.clear();
   if (current) app.endStroke();
   if (erasing) app.endErase();
   const leaving = note;
@@ -1739,4 +1821,4 @@ function saveJSON(key, value) {
 }
 
 // Nur beim Entwickeln: von der Browser-Konsole aus hineinschauen können
-if (import.meta.env.DEV) window.federleicht = { doc, tools, view, history };
+if (import.meta.env.DEV) window.federleicht = { doc, tools, view, history, renderer, commitChanges, newZ: () => nextZ++ };

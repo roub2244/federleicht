@@ -3782,3 +3782,664 @@ body {
 }
 .ie-filters button.selected { color: #fff; }
 .ie-filters button.selected .ie-thumb { border-color: #7b93ff; }
+
+/* ---------- Laserpointer (laser.js) ---------- */
+/* Eigenes durchsichtiges Canvas über der Seite; Berührungen gehen durch zur Zeichenfläche */
+.laser-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 3;
+}
+.tool-btn[data-tool='laser'] .tip {
+  stroke: var(--swatch, #ff2d55);
+}
+
+/* Schriften-Liste: gruppiert und scrollbar (Etappe 9: viele neue Schriften) */
+.tp-fonts {
+  max-height: min(62vh, 520px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.tp-group {
+  padding: 10px 16px 4px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.tp-group:first-child {
+  padding-top: 2px;
+}
+
+/* ---------- Werkzeugleiste anpassen (toolbarconfig.js) ---------- */
+.topbar .tb-off {
+  display: none !important;
+}
+.tbc {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  background: rgba(10, 14, 24, 0.45);
+  padding: 16px;
+}
+.tbc-panel {
+  width: min(760px, 100%);
+  max-height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  color: var(--text);
+  border-radius: 26px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+  overflow: hidden;
+}
+.tbc-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 16px 6px;
+}
+.tbc-head h2 {
+  flex: 1;
+  margin: 0;
+  font-size: 19px;
+  font-weight: 700;
+}
+.tbc-reset {
+  border: none;
+  border-radius: 999px;
+  padding: 10px 18px;
+  background: var(--chip);
+  color: var(--text);
+  font: inherit;
+  font-weight: 600;
+}
+.tbc-sub,
+.tbc-sect {
+  padding: 10px 24px 6px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--muted);
+}
+.tbc-preview {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 0 16px;
+  padding: 8px 10px;
+  border-radius: 16px;
+  background: var(--bar);
+  overflow-x: auto;
+}
+.tbc-prev-group {
+  display: flex;
+  gap: 2px;
+  align-items: center;
+}
+.tbc-prev-group.tools {
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: var(--glass-strong);
+}
+.tbc-prev-btn {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  color: var(--text);
+}
+.tbc-prev-btn svg,
+.tbc-icon svg {
+  width: 21px;
+  height: 21px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.tbc-prev-btn .tip,
+.tbc-icon .tip {
+  fill: currentColor;
+}
+.tbc-text {
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.tbc-scroll {
+  overflow-y: auto;
+  padding: 4px 0 18px;
+  overscroll-behavior: contain;
+}
+.tbc-list {
+  margin: 0 16px;
+  border-radius: 18px;
+  background: var(--bar);
+  overflow: hidden;
+}
+.tbc-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-height: 56px;
+  padding: 0 8px 0 18px;
+  background: var(--bar);
+  transition: transform 0.15s ease;
+}
+.tbc-row + .tbc-row {
+  border-top: 1px solid var(--line);
+}
+.tbc-row.dragging {
+  z-index: 2;
+  transition: none;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+  border-radius: 14px;
+}
+.tbc-row.off .tbc-icon,
+.tbc-row.off .tbc-name {
+  opacity: 0.45;
+}
+.tbc-icon {
+  width: 28px;
+  display: grid;
+  place-items: center;
+}
+.tbc-name {
+  flex: 1;
+  font-size: 16px;
+}
+.tbc-grip {
+  width: 48px;
+  height: 48px;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  touch-action: none;
+  cursor: grab;
+}
+.tbc-grip svg {
+  width: 22px;
+  height: 22px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.tbc-hint {
+  margin: 14px 24px 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+/* ---------- Handschrifthilfe (assist.js) ---------- */
+.assist-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 2;
+}
+/* Knöpfe in der Werkzeugleiste, die kein Werkzeug sind (an/aus bzw. Aktion) */
+.aux-btn.on {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+/* ---------- Handschrift zu Text (convert.js) ---------- */
+.dlg.wide {
+  width: 580px;
+}
+.cv-ink {
+  max-height: 160px;
+  overflow: auto;
+  border-radius: 14px;
+  border: 1.5px solid var(--line);
+  background: #ffffff;
+}
+.cv-preview {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+.cv-label {
+  display: block;
+  margin: 14px 2px 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+}
+.cv-text {
+  width: 100%;
+  min-height: 120px;
+  max-height: 34vh;
+  padding: 12px 14px;
+  border: 1.5px solid var(--line);
+  border-radius: 14px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 17px;
+  line-height: 1.45;
+  resize: vertical;
+  outline: none;
+}
+.cv-text:focus {
+  border-color: var(--accent);
+}
+.cv-fonts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.cv-font {
+  padding: 8px 14px;
+  border: 1.5px solid var(--line);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text);
+  font-size: 16px;
+}
+.cv-font.on {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.cv-switch {
+  margin-top: 12px;
+}
+
+/* ---------- Ordner mit Farbe und Symbol (folders.js, home.js) ---------- */
+/* Das Symbol ist ein Canvas (paint.js "badge") und füllt sein <i> */
+.f-badge,
+.h-fbadge,
+.h-tbadge,
+.f-tbadge,
+.n-fbadge,
+.dlg-badge,
+.fd-badge,
+.fd-ibadge {
+  position: relative;
+  display: inline-block;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+.h-fbadge { width: 24px; height: 24px; border-radius: 7px; }
+.h-tbadge { width: 34px; height: 34px; border-radius: 10px; }
+.f-tbadge { width: 46px; height: 46px; border-radius: 13px; }
+.n-fbadge { width: 15px; height: 15px; border-radius: 4.5px; }
+.dlg-badge { width: 22px; height: 22px; border-radius: 6.5px; }
+.fd-badge { width: 52px; height: 52px; border-radius: 15px; }
+.fd-ibadge { width: 36px; height: 36px; border-radius: 10px; }
+
+/* Seitenleiste: Ordner-Baum */
+.h-item .h-twist {
+  flex: 0 0 18px;
+  width: 18px;
+  height: 28px;
+  margin: 0 -8px 0 -10px;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  flex-shrink: 0;
+}
+.h-item .h-twist svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transition: transform 0.15s;
+}
+.h-item .h-twist.open svg {
+  transform: rotate(90deg);
+}
+
+/* Kopf: Pfad + Titel mit Symbol */
+.h-title-wrap {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 2px;
+}
+.h-title-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+.h-title-row .h-count {
+  align-self: baseline;
+  padding-top: 10px;
+}
+.h-title-badge:empty {
+  display: none;
+}
+.h-crumbs {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-height: 0;
+  font-size: 13.5px;
+  color: var(--muted);
+}
+.h-crumbs:empty {
+  display: none;
+}
+.h-crumbs button {
+  border: none;
+  background: none;
+  padding: 2px 4px;
+  border-radius: 6px;
+  color: var(--accent);
+  font: inherit;
+  font-weight: 600;
+}
+.h-crumbs i svg {
+  width: 13px;
+  height: 13px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  display: block;
+}
+
+/* Abschnitte: "Ordner", "Heute", "Gestern" … */
+.h-content {
+  padding-bottom: 120px;
+}
+.h-sec-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 18px 32px 2px;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.h-sec-head small {
+  font-weight: 600;
+  opacity: 0.75;
+}
+.h-content .h-grid {
+  padding-bottom: 8px;
+}
+
+/* Ordner-Kacheln */
+.f-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 12px;
+  padding: 10px 32px 6px;
+}
+.f-tile {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-height: 82px;
+  padding: 14px 40px 14px 14px;
+  border: none;
+  border-radius: 20px;
+  background: var(--bar);
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+  box-shadow: 0 0 0 1px var(--line), 0 6px 16px rgba(20, 30, 60, 0.06);
+  -webkit-user-select: none;
+  user-select: none;
+  transition: transform 0.15s;
+}
+.f-tile:active {
+  transform: scale(0.98);
+}
+/* zarter Farbschimmer der Ordnerfarbe (als Canvas, gegen den Dunkelmodus) */
+.f-tint {
+  position: absolute;
+  inset: 0;
+  opacity: 0.1;
+  pointer-events: none;
+}
+.f-tint canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+.f-text {
+  position: relative;
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.f-text b {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 16px;
+  font-weight: 700;
+}
+.f-text small {
+  font-size: 12.5px;
+  color: var(--muted);
+}
+.f-more {
+  position: absolute;
+  top: 50%;
+  right: 4px;
+  width: 36px;
+  height: 36px;
+  margin-top: -18px;
+  display: grid;
+  place-items: center;
+  border: none;
+  border-radius: 12px;
+  background: none;
+  color: var(--muted);
+}
+.f-more svg {
+  width: 18px;
+  height: 18px;
+  fill: currentColor;
+}
+.f-new {
+  justify-content: center;
+  gap: 8px;
+  padding: 14px;
+  background: transparent;
+  color: var(--accent);
+  font-weight: 650;
+  box-shadow: inset 0 0 0 1.5px var(--line);
+  border: 1.5px dashed transparent;
+}
+.f-new svg {
+  width: 22px;
+  height: 22px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.2;
+  stroke-linecap: round;
+}
+
+/* Ordner-Hinweis an Notizen */
+.n-folder {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.n-folder > span {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* Listen-Ansicht */
+.n-list {
+  display: grid;
+  gap: 6px;
+  padding: 10px 24px 8px;
+}
+.n-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-height: 72px;
+  padding: 8px 52px 8px 10px;
+  border-radius: 16px;
+  background: var(--bar);
+  box-shadow: 0 0 0 1px var(--line);
+}
+.n-row .n-thumb {
+  width: 44px;
+  flex-shrink: 0;
+  border-radius: 6px;
+}
+.n-rinfo {
+  flex: 1;
+  min-width: 0;
+}
+.n-rinfo .n-title {
+  -webkit-line-clamp: 1;
+  font-size: 15.5px;
+}
+.n-rstar svg {
+  width: 15px;
+  height: 15px;
+  margin: 0 5px -2px 0;
+  fill: #fab005;
+  stroke: none;
+}
+.n-rmeta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 3px;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+.n-rmeta .n-folder {
+  margin-top: 0;
+}
+.n-dates {
+  display: grid;
+  justify-items: end;
+  gap: 2px;
+  font-size: 12.5px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.n-row .n-more {
+  top: 50%;
+  bottom: auto;
+  right: 8px;
+  margin-top: -18px;
+}
+
+/* Fenster "Ordner bearbeiten" */
+.fd-top {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.fd-top .dlg-input {
+  flex: 1;
+}
+.fd-label,
+.fd-own > span {
+  display: block;
+  margin: 14px 2px 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+}
+.fd-icons {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(44px, 1fr));
+  gap: 6px;
+  max-height: 150px;
+  overflow-y: auto;
+}
+.fd-icon {
+  display: grid;
+  place-items: center;
+  height: 46px;
+  border: 2px solid transparent;
+  border-radius: 14px;
+  background: none;
+}
+.fd-icon.selected {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.fd-own {
+  display: block;
+}
+select.dlg-input {
+  appearance: auto;
+}
+.dlg-item .dlg-badge {
+  margin-right: 2px;
+}
+@media (max-width: 760px) {
+  .n-dates {
+    display: none;
+  }
+  .f-tiles {
+    padding: 10px 16px 6px;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  }
+}
+.fd-colors {
+  margin-top: 0;
+  gap: 10px;
+}
+
+/* ---------- Schmale Bildschirme (Tablet hochkant): Werkzeuge in eine eigene zweite Reihe ---------- */
+/* Seit Etappe 9 gibt es mehr Werkzeuge (Laserpointer, Handschrifthilfe, Zu Text). Hochkant passen
+   sie nicht mehr neben die Knöpfe – dann stehen sie mittig in einer zweiten Reihe (wischbar). */
+@media (max-width: 1100px) {
+  .topbar {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-rows: auto auto;
+    row-gap: 2px;
+    height: auto;
+    padding-bottom: 6px;
+  }
+  .topbar .bar-left {
+    grid-row: 1;
+    grid-column: 1;
+    min-height: 54px;
+  }
+  .topbar .actions {
+    grid-row: 1;
+    grid-column: 2;
+  }
+  .topbar .tools {
+    grid-row: 2;
+    grid-column: 1 / -1;
+    justify-self: center;
+    max-width: 100%;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .topbar .tools::-webkit-scrollbar {
+    display: none;
+  }
+  .topbar .tool-btn {
+    flex-shrink: 0;
+  }
+}

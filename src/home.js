@@ -7,7 +7,10 @@
 // Bedienung:
 //   Notiz antippen              -> öffnen
 //   "…" oder lange drücken      -> Umbenennen, Favorit, Verschieben, Duplizieren, Löschen
-//   Ordner: "+" bei "Ordner"    -> neuer Ordner (Name + Farbe), "…" am Ordner -> umbenennen/löschen
+//   Ordner: "+" bei "Ordner"    -> neuer Ordner (Name, Farbe, Symbol), "…" am Ordner -> bearbeiten,
+//                                 Unterordner, verschieben, löschen
+//   Ordner liegen als große, farbige Kacheln über den Notizen; Unterordner im Ordner.
+//   Notizen sind nach Datum gruppiert (Heute, Gestern, Diese Woche …), als Raster oder Liste.
 //   Gelöschte Notizen landen 30 Tage im Papierkorb, bevor sie wirklich weg sind.
 //
 // main.js gibt uns über "api" das Öffnen und Anlegen von Notizen.
@@ -16,11 +19,13 @@ import * as store from './store.js';
 import { askText, confirmBox, chooseFrom, toast, esc } from './dialog.js';
 import { paint } from './paint.js';
 import { drawThumbnail, DEFAULT_TEMPLATE } from './templates.js';
+import { FOLDER_COLORS, badge, folderDialog, parentOf, descendants, pathOf, childrenOf, flatTree } from './folders.js';
+
+export { FOLDER_COLORS };
 
 const TRASH_DAYS = 30;
 const LONG_PRESS_MS = 450;
 
-export const FOLDER_COLORS = ['#4a6cf7', '#7048e8', '#e64980', '#e03131', '#f08c00', '#fab005', '#2f9e44', '#0c8599', '#868e96'];
 
 const SORTS = [
   { id: 'updated', name: 'Zuletzt geändert' },
@@ -46,6 +51,10 @@ const ICON = {
   backup: '<svg viewBox="0 0 24 24"><path d="M12 3v12M7.5 10.5 12 15l4.5-4.5"/><path d="M4.5 15.5v3a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2v-3"/></svg>',
   upload: '<svg viewBox="0 0 24 24"><path d="M12 15V3M7.5 7.5 12 3l4.5 4.5"/><path d="M4.5 15.5v3a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2v-3"/></svg>',
   close: '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg>',
+  grid: '<svg viewBox="0 0 24 24"><rect x="4" y="4" width="7" height="7" rx="1.6"/><rect x="13" y="4" width="7" height="7" rx="1.6"/><rect x="4" y="13" width="7" height="7" rx="1.6"/><rect x="13" y="13" width="7" height="7" rx="1.6"/></svg>',
+  list: '<svg viewBox="0 0 24 24"><path d="M9 6.5h11M9 12h11M9 17.5h11"/><rect x="3.5" y="5" width="3" height="3" rx=".8"/><rect x="3.5" y="10.5" width="3" height="3" rx=".8"/><rect x="3.5" y="16" width="3" height="3" rx=".8"/></svg>',
+  chevron: '<svg viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></svg>',
+  sub: '<svg viewBox="0 0 24 24"><path d="M3.5 7.5a2 2 0 0 1 2-2h4l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/><path d="M12 11v5M9.5 13.5h5"/></svg>',
   pdf: '<svg viewBox="0 0 24 24"><path d="M14 3.5H7a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8.5z"/><path d="M14 3.5v5h5"/><path d="M12 11v6M9.5 14.5 12 17l2.5-2.5"/></svg>',
 };
 
@@ -59,6 +68,8 @@ export function setupHome(api) {
   let sort = readJSON('homeSort', 'updated');
   let search = '';
   let drawerOpen = false;
+  let viewMode = readJSON('homeView', 'grid');                // 'grid' | 'list'
+  const expanded = new Set(readJSON('homeExpanded', []));    // aufgeklappte Ordner in der Seitenleiste
   const bitmaps = new Map(); // Vorschaubilder: Notiz-ID -> { key, bitmap }
 
   root.innerHTML = `
@@ -74,16 +85,17 @@ export function setupHome(api) {
       <header class="h-head">
         <button class="h-icon h-menu" data-act="drawer" aria-label="Ordner">${ICON.menu}</button>
         <div class="h-title-wrap">
-          <h1 class="h-title"></h1>
-          <span class="h-count"></span>
+          <nav class="h-crumbs" aria-label="Ordnerpfad"></nav>
+          <div class="h-title-row"><span class="h-title-badge"></span><h1 class="h-title"></h1><span class="h-count"></span></div>
         </div>
         <label class="h-search">${ICON.search}<input type="search" placeholder="Notizen suchen" autocomplete="off" /></label>
         <button class="h-icon" data-act="sort" aria-label="Sortieren" title="Sortieren">${ICON.sort}</button>
+        <button class="h-icon" data-act="view" aria-label="Ansicht wechseln" title="Raster oder Liste"></button>
         <button class="h-chip h-pdf" data-act="import-pdf" title="PDF öffnen und darauf schreiben">${ICON.pdf}<span>PDF öffnen</span></button>
         <button class="h-chip" data-act="empty-trash" hidden>Papierkorb leeren</button>
       </header>
       <div class="h-scroll">
-        <div class="h-grid"></div>
+        <div class="h-content"></div>
         <div class="h-empty" hidden></div>
       </div>
       <button class="h-fab" data-act="new" aria-label="Neue Notiz" title="Neue Notiz">${ICON.pen}<b>${ICON.plus}</b></button>
@@ -91,7 +103,7 @@ export function setupHome(api) {
     <div class="h-menu-pop" hidden></div>`;
 
   const nav = root.querySelector('.h-nav');
-  const grid = root.querySelector('.h-grid');
+  const grid = root.querySelector('.h-content');
   const empty = root.querySelector('.h-empty');
   const pop = root.querySelector('.h-menu-pop');
   const searchInput = root.querySelector('.h-search input');
@@ -117,7 +129,7 @@ export function setupHome(api) {
       await store.deleteNoteForever(n);
     }
     notes = notes.filter((n) => !(n.deletedAt && n.deletedAt < limit));
-    folders.sort((a, b) => a.created - b.created);
+    folders.sort((a, b) => (a.name || '').localeCompare(b.name || '', 'de', { numeric: true }));
     if (filter.kind === 'folder' && !folders.some((f) => f.id === filter.id)) filter = { kind: 'all' };
     render();
   }
@@ -150,35 +162,103 @@ export function setupHome(api) {
     return 'Alle Notizen';
   }
 
+  // Notizen in diesem Ordner UND allen Unterordnern
+  function deepNotes(id) {
+    const ids = new Set([id, ...descendants(folders, id)]);
+    return live().filter((n) => ids.has(n.folderId));
+  }
+
   function render() {
     renderNav();
     const list = visibleNotes();
+    const inFolder = filter.kind === 'folder';
     root.querySelector('.h-title').textContent = titleOfFilter();
+    root.querySelector('.h-title-badge').innerHTML = inFolder ? badge(folderOf(filter.id), 'h-tbadge') : '';
+    // Pfad über dem Titel: Alle Notizen › Schule › Mathe
+    const path = inFolder ? pathOf(folders, filter.id).slice(0, -1) : [];
+    root.querySelector('.h-crumbs').innerHTML = inFolder
+      ? [`<button data-crumb="">Alle Notizen</button>`, ...path.map((f) => `<button data-crumb="${f.id}">${esc(f.name)}</button>`)].join(`<i>${ICON.chevron}</i>`)
+      : '';
     root.querySelector('.h-count').textContent = `${list.length} ${list.length === 1 ? 'Notiz' : 'Notizen'}`;
     root.querySelector('[data-act="empty-trash"]').hidden = filter.kind !== 'trash' || list.length === 0;
     root.querySelector('[data-act="new"]').hidden = filter.kind === 'trash';
     root.querySelector('[data-act="import-pdf"]').hidden = filter.kind === 'trash';
+    root.querySelector('[data-act="view"]').innerHTML = viewMode === 'grid' ? ICON.list : ICON.grid;
     root.classList.toggle('drawer-open', drawerOpen);
 
-    grid.innerHTML = list
-      .map((n) => {
-        const f = folderOf(n.folderId);
-        const pages = n.pageCount || n.pageIds?.length || 1;
-        const when = filter.kind === 'trash' ? `Gelöscht ${formatDate(n.deletedAt)}` : formatDate(n.updated);
-        return `<div class="n-card" data-id="${n.id}">
-          <div class="n-thumb"><canvas></canvas>${pages > 1 ? `<span class="n-pages">${pages}</span>` : ''}${n.favorite ? `<span class="n-star">${ICON.star}</span>` : ''}</div>
-          <div class="n-info">
-            <div class="n-title">${esc(n.title || 'Ohne Titel')}</div>
-            <div class="n-meta">${f && filter.kind !== 'folder' ? `<i class="n-dot">${paint(f.color)}</i>` : ''}<span>${esc(when)}</span></div>
-          </div>
-          <button class="n-more" data-more aria-label="Mehr">${ICON.more}</button>
-        </div>`;
-      })
-      .join('');
+    // Ordner-Kacheln: in "Alle Notizen" die obersten Ordner, in einem Ordner seine Unterordner
+    let html = '';
+    const showFolders = !search.trim() && (filter.kind === 'all' || inFolder);
+    const sub = showFolders ? childrenOf(folders, inFolder ? filter.id : null) : [];
+    if (showFolders && (sub.length || inFolder || folders.length === 0)) {
+      html += `<section class="h-sec"><div class="h-sec-head"><span>${inFolder ? 'Unterordner' : 'Ordner'}</span>${sub.length ? `<small>${sub.length}</small>` : ''}</div>
+        <div class="f-tiles">${sub.map(folderTile).join('')}
+          <button class="f-tile f-new" data-act="new-folder-here">${ICON.plus}<span>${inFolder ? 'Unterordner' : 'Neuer Ordner'}</span></button>
+        </div></section>`;
+    }
 
-    empty.hidden = list.length > 0;
-    if (!list.length) empty.innerHTML = emptyText();
+    // Notizen, nach Datum gruppiert (bei Sortierung nach Datum)
+    if (list.length) {
+      const groups = sort === 'title' || filter.kind === 'trash' ? [{ name: sub.length ? 'Notizen' : '', notes: list }] : groupByDate(list, sort === 'created' ? 'created' : 'updated');
+      for (const g of groups) {
+        html += `<section class="h-sec">${g.name ? `<div class="h-sec-head"><span>${esc(g.name)}</span><small>${g.notes.length}</small></div>` : ''}
+          <div class="${viewMode === 'list' ? 'n-list' : 'h-grid'}">${g.notes.map(viewMode === 'list' ? noteRow : noteCard).join('')}</div></section>`;
+      }
+    }
+    grid.innerHTML = html;
+    empty.hidden = list.length > 0 || (showFolders && sub.length > 0);
+    if (!empty.hidden) empty.innerHTML = emptyText();
     drawThumbs(list);
+  }
+
+  function folderTile(f) {
+    const notesIn = deepNotes(f.id);
+    const last = notesIn.reduce((m, n) => Math.max(m, n.updated || 0), 0);
+    const subs = childrenOf(folders, f.id).length;
+    const parts = [`${notesIn.length} ${notesIn.length === 1 ? 'Notiz' : 'Notizen'}`];
+    if (subs) parts.push(`${subs} ${subs === 1 ? 'Ordner' : 'Ordner'}`);
+    return `<div class="f-tile" data-folder="${f.id}" role="button" tabindex="0">
+      <span class="f-tint">${paint(f.color)}</span>
+      ${badge(f, 'f-tbadge')}
+      <span class="f-text"><b>${esc(f.name)}</b><small>${parts.join(' · ')}</small>
+        <small class="f-date">${last ? `Geändert ${esc(formatDate(last))}` : 'Noch leer'}</small></span>
+      <button class="f-more" data-fmore="${f.id}" aria-label="Ordner bearbeiten">${ICON.more}</button>
+    </div>`;
+  }
+
+  function folderChip(n) {
+    const f = folderOf(n.folderId);
+    return f && !(filter.kind === 'folder' && filter.id === f.id) ? `<span class="n-folder">${badge(f, 'n-fbadge')}<span>${esc(f.name)}</span></span>` : '';
+  }
+
+  function noteCard(n) {
+    const pages = n.pageCount || n.pageIds?.length || 1;
+    const when = filter.kind === 'trash' ? `Gelöscht ${formatDate(n.deletedAt)}` : formatDate(sort === 'created' ? n.created : n.updated);
+    return `<div class="n-card" data-id="${n.id}">
+      <div class="n-thumb"><canvas></canvas>${pages > 1 ? `<span class="n-pages">${pages}</span>` : ''}${n.favorite ? `<span class="n-star">${ICON.star}</span>` : ''}</div>
+      <div class="n-info">
+        <div class="n-title">${esc(n.title || 'Ohne Titel')}</div>
+        <div class="n-meta"><span>${esc(when)}</span></div>
+        ${folderChip(n)}
+      </div>
+      <button class="n-more" data-more aria-label="Mehr">${ICON.more}</button>
+    </div>`;
+  }
+
+  // Listen-Ansicht: kleine Vorschau, Titel, Ordner, erstellt/geändert, Seiten
+  function noteRow(n) {
+    const pages = n.pageCount || n.pageIds?.length || 1;
+    return `<div class="n-card n-row" data-id="${n.id}">
+      <div class="n-thumb"><canvas></canvas></div>
+      <div class="n-rinfo">
+        <div class="n-title">${n.favorite ? `<span class="n-rstar">${ICON.star}</span>` : ''}${esc(n.title || 'Ohne Titel')}</div>
+        <div class="n-rmeta">${folderChip(n)}<span>${pages} ${pages === 1 ? 'Seite' : 'Seiten'}</span></div>
+      </div>
+      <div class="n-dates">
+        ${filter.kind === 'trash' ? `<span>Gelöscht ${esc(formatDate(n.deletedAt))}</span>` : `<span>Geändert ${esc(formatDate(n.updated))}</span><span>Erstellt ${esc(fullDate(n.created))}</span>`}
+      </div>
+      <button class="n-more" data-more aria-label="Mehr">${ICON.more}</button>
+    </div>`;
   }
 
   function emptyText() {
@@ -190,22 +270,33 @@ export function setupHome(api) {
 
   function renderNav() {
     const count = (fn) => live().filter(fn).length;
-    const item = (kind, id, icon, label, n, extra = '') => {
+    const item = (kind, id, icon, label, n, extra = '', depth = 0) => {
       const on = filter.kind === kind && (kind !== 'folder' || filter.id === id);
-      return `<button class="h-item${on ? ' on' : ''}" data-filter="${kind}"${id ? ` data-id="${id}"` : ''}>
+      return `<button class="h-item${on ? ' on' : ''}" data-filter="${kind}"${id ? ` data-id="${id}"` : ''}${depth ? ` style="padding-left:${14 + depth * 18}px"` : ''}>
         ${icon}<span>${esc(label)}</span><small>${n || ''}</small>${extra}</button>`;
     };
+    // Ordner als Baum: Pfeil klappt Unterordner auf und zu
+    const tree = (pid, depth) =>
+      childrenOf(folders, pid)
+        .map((f) => {
+          const kids = childrenOf(folders, f.id).length > 0;
+          const open = expanded.has(f.id) || (filter.kind === 'folder' && pathOf(folders, filter.id).some((p) => p.id === f.id && p.id !== filter.id));
+          const toggle = kids
+            ? `<span class="h-twist${open ? ' open' : ''}" data-twist="${f.id}" role="button" aria-label="Unterordner zeigen">${ICON.chevron}</span>`
+            : '<span class="h-twist none"></span>';
+          return (
+            item('folder', f.id, toggle + badge(f, 'h-fbadge'), f.name, deepNotes(f.id).length,
+              `<span class="h-fmore" data-fmore="${f.id}" role="button" aria-label="Ordner bearbeiten">${ICON.more}</span>`, depth) +
+            (kids && open ? tree(f.id, depth + 1) : '')
+          );
+        })
+        .join('');
     nav.innerHTML = `
       ${item('all', '', ICON.notes, 'Alle Notizen', live().length)}
       ${item('fav', '', ICON.star, 'Favoriten', count((n) => n.favorite))}
       <div class="h-sect"><span>Ordner</span><button class="h-sect-add" data-act="new-folder" aria-label="Neuer Ordner" title="Neuer Ordner">${ICON.plus}</button></div>
-      ${folders
-        .map((f) =>
-          item('folder', f.id, `<i class="h-fdot">${paint(f.color)}</i>`, f.name, count((n) => n.folderId === f.id),
-            `<span class="h-fmore" data-fmore="${f.id}" role="button" aria-label="Ordner bearbeiten">${ICON.more}</span>`)
-        )
-        .join('')}
-      ${folders.length ? '' : '<div class="h-hint">Ordner für deine Fächer, z. B. Mathe, Bio, Deutsch</div>'}
+      ${tree(null, 0)}
+      ${folders.length ? '' : '<div class="h-hint">Ordner für deine Fächer, z. B. Mathe, Bio, Deutsch – mit Farbe und Symbol</div>'}
       <div class="h-sep"></div>
       ${item('trash', '', ICON.trash, 'Papierkorb', notes.length - live().length)}`;
   }
@@ -215,7 +306,7 @@ export function setupHome(api) {
   async function drawThumbs(list) {
     const dark = api.darkPaper();
     for (const n of list) {
-      const canvas = grid.querySelector(`.n-card[data-id="${n.id}"] canvas`);
+      const canvas = grid.querySelector(`.n-card[data-id="${n.id}"] .n-thumb canvas`);
       if (!canvas) continue;
       const blob = dark ? n.thumbDark : n.thumbLight;
       const tpl = n.firstTemplate || DEFAULT_TEMPLATE;
@@ -255,7 +346,13 @@ export function setupHome(api) {
       drawerOpen = !drawerOpen;
       return render();
     }
-    if (act === 'new') return api.createNote(filter.kind === 'folder' ? filter.id : null);
+    if (act === 'new') return api.createNote(filter.kind === 'folder' ? filter.id : null, filter.kind === 'folder' ? folderOf(filter.id)?.name : null);
+    if (act === 'new-folder-here') return newFolder(true, filter.kind === 'folder' ? filter.id : null);
+    if (act === 'view') {
+      viewMode = viewMode === 'grid' ? 'list' : 'grid';
+      saveJSON('homeView', viewMode);
+      return render();
+    }
     if (act === 'import-pdf') return pdfInput.click();
     if (act === 'new-folder') return newFolder();
     if (act === 'sort') return openSortMenu(t.closest('button'));
@@ -264,6 +361,25 @@ export function setupHome(api) {
 
     const fmore = t.closest('[data-fmore]');
     if (fmore) return openFolderMenu(fmore.dataset.fmore, fmore);
+
+    // Pfeil in der Seitenleiste: Unterordner auf-/zuklappen
+    const twist = t.closest('[data-twist]');
+    if (twist) {
+      const id = twist.dataset.twist;
+      if (twist.classList.contains('open')) expanded.delete(id);
+      else expanded.add(id);
+      saveJSON('homeExpanded', [...expanded]);
+      return renderNav();
+    }
+
+    // Pfad oben ("Alle Notizen › Schule ›") oder Ordner-Kachel antippen
+    const crumb = t.closest('[data-crumb]');
+    const tile = t.closest('[data-folder]');
+    if (crumb || tile) {
+      const id = crumb ? crumb.dataset.crumb : tile.dataset.folder;
+      openFolder(id || null);
+      return;
+    }
 
     const navItem = t.closest('[data-filter]');
     if (navItem) {
@@ -292,8 +408,8 @@ export function setupHome(api) {
   let press = null;
   let suppressClick = false;
   root.addEventListener('pointerdown', (e) => {
-    const card = e.target.closest('.n-card, .h-item[data-filter="folder"]');
-    if (!card || e.target.closest('button.n-more, [data-fmore]')) return;
+    const card = e.target.closest('.n-card, .h-item[data-filter="folder"], .f-tile[data-folder]');
+    if (!card || e.target.closest('button.n-more, [data-fmore], [data-twist]')) return;
     press = {
       id: e.pointerId,
       x: e.clientX,
@@ -304,7 +420,7 @@ export function setupHome(api) {
         setTimeout(() => (suppressClick = false), 400);
         navigator.vibrate?.(12);
         if (card.classList.contains('n-card')) openNoteMenu(card.dataset.id, card.querySelector('[data-more]'));
-        else openFolderMenu(card.dataset.id, card);
+        else openFolderMenu(card.dataset.id || card.dataset.folder, card);
       }, LONG_PRESS_MS),
     };
   });
@@ -316,6 +432,16 @@ export function setupHome(api) {
   };
   for (const type of ['pointermove', 'pointerup', 'pointercancel']) root.addEventListener(type, cancelPress);
   root.addEventListener('contextmenu', (e) => e.preventDefault());
+
+  function openFolder(id) {
+    filter = id ? { kind: 'folder', id } : { kind: 'all' };
+    if (id) for (const p of pathOf(folders, id).slice(0, -1)) expanded.add(p.id);
+    saveJSON('homeFilter', filter);
+    saveJSON('homeExpanded', [...expanded]);
+    drawerOpen = false;
+    root.querySelector('.h-scroll').scrollTop = 0;
+    render();
+  }
 
   // ---------- Kleine Menüs ----------
   function showMenu(anchor, items) {
@@ -375,7 +501,10 @@ export function setupHome(api) {
     const folder = folderOf(id);
     if (!folder) return;
     showMenu(anchor, [
-      { icon: ICON.rename, label: 'Umbenennen / Farbe', run: () => editFolder(folder) },
+      { icon: ICON.rename, label: 'Bearbeiten (Name, Farbe, Symbol)', run: () => editFolder(folder) },
+      { icon: ICON.sub, label: 'Unterordner anlegen', run: () => newFolder(true, folder.id) },
+      { icon: ICON.move, label: 'Verschieben', run: () => moveFolder(folder) },
+      '-',
       { icon: ICON.trash, label: 'Ordner löschen', danger: true, run: () => removeFolder(folder) },
     ]);
   }
@@ -417,7 +546,7 @@ export function setupHome(api) {
   async function moveNote(note) {
     const options = [
       { id: '__none', label: 'Ohne Ordner', current: !note.folderId },
-      ...folders.map((f) => ({ id: f.id, label: f.name, color: f.color, current: f.id === note.folderId })),
+      ...flatTree(folders).map(({ folder: f, depth }) => ({ id: f.id, label: f.name, icon: badge(f, 'dlg-badge'), depth, current: f.id === note.folderId })),
       { id: '__new', label: '+ Neuer Ordner …' },
     ];
     let target = await chooseFrom({ title: 'Verschieben nach', options });
@@ -486,14 +615,14 @@ export function setupHome(api) {
     store.cleanupBlobs().catch(() => {});
   }
 
-  async function newFolder(open = true) {
-    const used = new Set(folders.map((f) => f.color));
-    const color = FOLDER_COLORS.find((c) => !used.has(c)) || FOLDER_COLORS[0];
-    const res = await askText({ title: 'Neuer Ordner', placeholder: 'z. B. Mathe', ok: 'Anlegen', colors: FOLDER_COLORS, color });
+  async function newFolder(open = true, parentId = null) {
+    const res = await folderDialog({ title: parentId ? 'Neuer Unterordner' : 'Neuer Ordner', folders, parentId, ok: 'Anlegen' });
     if (!res) return null;
-    const folder = { id: store.uid(), name: res.text, color: res.color, created: Date.now() };
+    const folder = { id: store.uid(), name: res.name, color: res.color, icon: res.icon, parentId: res.parentId, created: Date.now() };
     await store.putFolder(folder);
     folders.push(folder);
+    if (folder.parentId) expanded.add(folder.parentId);
+    saveJSON('homeExpanded', [...expanded]);
     if (open) {
       filter = { kind: 'folder', id: folder.id };
       saveJSON('homeFilter', filter);
@@ -504,25 +633,58 @@ export function setupHome(api) {
   }
 
   async function editFolder(folder) {
-    const res = await askText({ title: 'Ordner bearbeiten', value: folder.name, colors: FOLDER_COLORS, color: folder.color });
+    const res = await folderDialog({ title: 'Ordner bearbeiten', folder, folders });
     if (!res) return;
-    folder.name = res.text;
-    folder.color = res.color;
+    Object.assign(folder, { name: res.name, color: res.color, icon: res.icon, parentId: res.parentId });
     await store.putFolder(folder);
     render();
   }
 
+  // Ordner in einen anderen Ordner legen (nicht in sich selbst oder seine Unterordner)
+  async function moveFolder(folder) {
+    const skip = new Set([folder.id, ...descendants(folders, folder.id)]);
+    const target = await chooseFrom({
+      title: `„${folder.name}“ verschieben nach`,
+      options: [
+        { id: '__top', label: 'Ganz oben (kein Oberordner)', current: !parentOf(folder) },
+        ...flatTree(folders, skip).map(({ folder: f, depth }) => ({ id: f.id, label: f.name, icon: badge(f, 'dlg-badge'), depth, current: f.id === parentOf(folder) })),
+      ],
+    });
+    if (!target) return;
+    folder.parentId = target === '__top' ? null : target;
+    if (folder.parentId) expanded.add(folder.parentId);
+    saveJSON('homeExpanded', [...expanded]);
+    await store.putFolder(folder);
+    render();
+    toast(folder.parentId ? `Verschoben nach „${folderOf(folder.parentId)?.name}“` : 'Ordner liegt jetzt ganz oben');
+  }
+
+  // Ordner löschen: Notizen und Unterordner darin rutschen eine Ebene nach oben – nichts geht verloren
   async function removeFolder(folder) {
     const n = live().filter((x) => x.folderId === folder.id).length;
+    const kids = childrenOf(folders, folder.id);
+    const up = parentOf(folder) ? `„${folderOf(parentOf(folder))?.name}“` : '„Alle Notizen“';
+    const parts = [];
+    if (n) parts.push(n === 1 ? 'Die Notiz darin' : `Die ${n} Notizen darin`);
+    if (kids.length) parts.push(kids.length === 1 ? 'der Unterordner' : `die ${kids.length} Unterordner`);
     const ok = await confirmBox({
       title: `Ordner „${folder.name}“ löschen?`,
-      text: n ? `Die ${n === 1 ? 'Notiz darin bleibt' : `${n} Notizen darin bleiben`} erhalten (unter „Alle Notizen“).` : '',
+      text: parts.length ? `${parts.join(' und ')} ${n + kids.length === 1 ? 'bleibt' : 'bleiben'} erhalten (in ${up}).` : '',
       ok: 'Ordner löschen',
       danger: true,
     });
     if (!ok) return;
+    const parent = parentOf(folder);
+    for (const k of kids) {
+      k.parentId = parent;
+      await store.putFolder(k);
+    }
+    for (const note of notes.filter((x) => x.folderId === folder.id)) {
+      note.folderId = parent;
+      await store.putNote(note);
+    }
     await store.deleteFolder(folder.id);
-    if (filter.kind === 'folder' && filter.id === folder.id) filter = { kind: 'all' };
+    if (filter.kind === 'folder' && filter.id === folder.id) filter = parent ? { kind: 'folder', id: parent } : { kind: 'all' };
     await reload();
   }
 
@@ -617,6 +779,41 @@ export function formatDate(ms) {
   if (days > 1 && days < 7) return `${d.toLocaleDateString('de-DE', { weekday: 'short' })}, ${time}`;
   if (d.getFullYear() === now.getFullYear()) return d.toLocaleDateString('de-DE', { day: 'numeric', month: 'short' });
   return d.toLocaleDateString('de-DE');
+}
+
+// Ganzes Datum: "24.11.2026"
+export function fullDate(ms) {
+  if (!ms) return '';
+  return new Date(ms).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
+}
+
+// Notizen nach Datum gruppieren: Heute, Gestern, Diese Woche, Letzte Woche, dann nach Monaten
+export function groupByDate(list, key = 'updated') {
+  const now = new Date();
+  const day = (x) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const today = day(now);
+  const weekday = (now.getDay() + 6) % 7; // Montag = 0
+  const weekStart = today - weekday * 86400000;
+  const groups = [];
+  const byName = new Map();
+  for (const n of list) {
+    const t = n[key] || 0;
+    const d = new Date(t);
+    let name;
+    if (t >= today) name = 'Heute';
+    else if (t >= today - 86400000) name = 'Gestern';
+    else if (t >= weekStart) name = 'Diese Woche';
+    else if (t >= weekStart - 7 * 86400000) name = 'Letzte Woche';
+    else if (d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth()) name = 'Diesen Monat';
+    else name = d.toLocaleDateString('de-DE', { month: 'long', year: 'numeric' });
+    if (!byName.has(name)) {
+      const g = { name, notes: [] };
+      byName.set(name, g);
+      groups.push(g);
+    }
+    byName.get(name).notes.push(n);
+  }
+  return groups;
 }
 
 function readJSON(key, fallback) {

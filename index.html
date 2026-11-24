@@ -90,8 +90,32 @@
             <path d="M5 7V5h14v2M12 5v14M9 19h6" />
           </svg>
         </button>
+        <button class="tool-btn" data-tool="laser" title="Laserpointer: zeigen und erklären, verschwindet von selbst (nochmal tippen: Farbe, Dicke)" aria-label="Laserpointer">
+          <svg viewBox="0 0 24 24">
+            <path d="M14.6 9.4 5.2 18.8a1.6 1.6 0 0 1-2.3 0 1.6 1.6 0 0 1 0-2.3l9.4-9.4z" />
+            <path d="m12.3 7.1 2.3-2.3 4.6 4.6-2.3 2.3" />
+            <path class="tip" d="M19.6 2.8v1.6M21.2 4.4h-1.6M22 8.2l-1.2-.6M15.8 2l.6 1.2" />
+          </svg>
+          <i class="swatch"><canvas class="paint" width="1" height="1"></canvas></i>
+        </button>
+        <!-- Handschrifthilfe an/aus und Handschrift zu Text (siehe assist.js und convert.js) -->
+        <button id="btn-assist" class="tool-btn aux-btn" title="Handschrifthilfe: Hilfslinie beim Schreiben, Zeilen werden geradegerückt" aria-label="Handschrifthilfe" aria-pressed="false">
+          <svg viewBox="0 0 24 24">
+            <path d="M3 19.5h18" stroke-dasharray="2.4 2.2" />
+            <path d="M4 15.5c1.3-3.6 2.6-3.6 3.4-1s1.9 2.8 3.2-1.2c.6-1.8 1.4-1.8 1.9 0" />
+            <path d="M15.3 12.7 19.8 8.2a1.5 1.5 0 0 0-2.1-2.1l-4.5 4.5-.6 2.7z" />
+          </svg>
+        </button>
+        <button id="btn-convert" class="tool-btn aux-btn" title="Handschrift zu Text: Auswahl (Lasso) oder ganze Seite umwandeln" aria-label="Handschrift zu Text">
+          <svg viewBox="0 0 24 24">
+            <path d="M3 13c1.4-3.6 2.8-3.6 3.7-1s2.1 2.8 3.5-1" />
+            <path d="M12.5 11.5h3" stroke-width="1.5" />
+            <path d="m14.5 9.5 2 2-2 2" stroke-width="1.5" />
+            <path d="M17.5 6.5h4.5M19.75 6.5v10" />
+          </svg>
+        </button>
         <!-- Lieblingsstifte (Stern im Stift-Menü), lange drücken entfernt sie -->
-        <div id="favorites" class="favorites" hidden></div>
+        <div id="favorites" class="favorites keep-last" hidden></div>
       </div>
 
       <div class="actions">
@@ -126,6 +150,10 @@
         <button id="btn-zoom" class="btn zoom-btn" title="Zoom zurücksetzen">100 %</button>
         <button id="btn-debug" class="icon-btn" title="Stift-Diagnose ein/aus" aria-label="Stift-Diagnose">
           <svg viewBox="0 0 24 24"><path d="M3 12h4l3-8 4 16 3-8h4" /></svg>
+        </button>
+        <!-- Werkzeugleiste anpassen (siehe toolbarconfig.js) – bleibt immer ganz rechts -->
+        <button id="btn-customize" class="icon-btn keep-last" title="Werkzeugleiste anpassen" aria-label="Werkzeugleiste anpassen">
+          <svg viewBox="0 0 24 24"><path d="M4 7h9M17 7h3M4 17h3M11 17h9" /><circle cx="15" cy="7" r="2.2" /><circle cx="9" cy="17" r="2.2" /></svg>
         </button>
       </div>
     </header>

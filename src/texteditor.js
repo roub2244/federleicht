@@ -15,7 +15,7 @@
 
 import { pageDark } from './media.js';
 import {
-  FONTS, fontCss, PT, SIZES_PT, LINE_HEIGHT, LIST_INDENT, MIN_WIDTH, DEFAULT_STYLE,
+  FONTS, FONT_GROUPS, fontCss, PT, SIZES_PT, LINE_HEIGHT, LIST_INDENT, MIN_WIDTH, DEFAULT_STYLE,
   createTextItem, updateTextBox, isEmptyText, textHit, textHighlight,
 } from './text.js';
 import { displayColor, setInkTheme } from './ink.js';
@@ -181,9 +181,13 @@ export function setupTextEditor({ stage, view, doc, renderer, tools, onCommit, o
     popKind = kind;
     const st = currentState();
     if (kind === 'font') {
-      pop.innerHTML = `<div class="tp-list">${FONTS.map(
-        (f) => `<button class="tp-item${f.id === st.font ? ' on' : ''}" data-font="${f.id}" style="font-family:${esc(f.css)}">${f.name}</button>`
+      // Schriften nach Art gruppiert (Klar / Mit Serifen / Handgeschrieben), Liste scrollbar
+      pop.innerHTML = `<div class="tp-list tp-fonts">${FONT_GROUPS.map(
+        (g) => `<div class="tp-group">${g.name}</div>${FONTS.filter((f) => f.group === g.id).map(
+          (f) => `<button class="tp-item${f.id === st.font ? ' on' : ''}" data-font="${f.id}" style="font-family:${esc(f.css)}">${f.name}</button>`
+        ).join('')}`
       ).join('')}</div>`;
+      requestAnimationFrame(() => pop.querySelector('.tp-item.on')?.scrollIntoView({ block: 'center' }));
     } else if (kind === 'size') {
       pop.innerHTML = `<div class="tp-sizes">${SIZES_PT.map(
         (s) => `<button class="tp-size${Math.abs(s * PT - st.size) < 0.1 ? ' on' : ''}" data-size="${s}">${s}</button>`
