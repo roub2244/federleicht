@@ -30,6 +30,8 @@ import { setupMediaMenu } from './mediamenu.js';
 import { setupClaudeMenu } from './claudemenu.js';
 import { computeFill, createFill } from './fill.js';
 import { openImageEditor } from './imageeditor.js';
+import { setupLaser } from './laser.js';
+import { setupToolbarConfig } from './toolbarconfig.js';
 
 // ---------- Einstellungen ----------
 // Farbe, Dicke, Stiftart usw. kommen aus der Werkzeugleiste (siehe tools.js)
@@ -47,6 +49,7 @@ const doc = new NoteDocument(loadJSON('pageTemplate', DEFAULT_TEMPLATE));
 const view = new View();                  // Zoom und Verschiebung
 const renderer = new Renderer(canvas, view, doc);
 const debug = new Debug(document.getElementById('debug'), renderer);
+const laser = setupLaser({ stage, view, tools }); // Laserpointer (siehe laser.js)
 
 let current = null;      // der Strich, der gerade geschrieben wird
 let currentPage = null;  // ... auf dieser Seite
@@ -62,6 +65,7 @@ let shapeDrag = null;    // Formen-Werkzeug: Form wird gerade aufgezogen { start
 let swallowPen = false;  // dieser Stift-Strich hebt nur eine Auswahl auf (z. B. ein eingefügtes Bild) – nichts malen
 let mediaMenu = null;    // Menüs "Einfügen" und "Teilen" (siehe mediamenu.js)
 let claudeMenu = null;   // Claude-Knopf (siehe claudemenu.js)
+let lasering = false;    // Laserpointer: Stift liegt gerade auf (siehe laser.js)
 
 // Rückgängig/Wiederholen: bei jeder Änderung die Knöpfe an- oder ausgrauen
 const history = new History(() => {
@@ -88,6 +92,11 @@ const app = {
   startStroke(point, pointerType) {
     liftedPointer = null;
     swallowPen = false;
+    // Laserpointer: leuchtende Spur, die nicht gespeichert wird
+    if (tools.tool === 'laser') {
+      lasering = true;
+      return laser.down(point);
+    }
     // Etwas ausgewählt (z. B. gerade eingefügtes Bild) und daneben getippt: nur die Auswahl aufheben
     if (tools.tool !== 'lasso' && lasso.active) {
       lasso.clear();
@@ -112,6 +121,7 @@ const app = {
 
   extendStroke(points, predicted) {
     if (points.length === 0 || swallowPen) return;
+    if (lasering) return laser.move(points);
     if (tools.tool === 'lasso') return lasso.penMove(points);
     if (shapeDrag) return updateShapeDrag(toLocal(points[points.length - 1]));
     points = points.map(toLocal);
@@ -171,6 +181,10 @@ const app = {
 
   endStroke() {
     liftedPointer = null;
+    if (lasering) {
+      lasering = false;
+      return laser.up();
+    }
     if (swallowPen) {
       swallowPen = false;
       return;
@@ -257,6 +271,11 @@ const app = {
     } else if (!on && tools.tool === 'eraser') {
       toolbar.setTool(toolBeforeEraser);
     }
+  },
+
+  // Stift schwebt über dem Blatt (Bildschirm-Position, null = weg): beim Laserpointer zeigt ein Punkt, wohin du zeigst
+  penHover(pos) {
+    if (tools.tool === 'laser' || !pos) laser.hover(tools.tool === 'laser' ? pos : null);
   },
 
   // Stiftknopf in der Luft lange gehalten -> Schnellmenü-Rad an dieser Stelle öffnen
@@ -806,6 +825,7 @@ function afterViewChange() {
   renderer.requestRender();
   textEditor?.place();
   lasso?.place();
+  laser.redraw();
   zoomButton.textContent = `${Math.round((view.scale / view.fitScale) * 100)} %`;
   pages?.onViewChange();
   scheduleSession();
@@ -1284,6 +1304,13 @@ const wheel = setupWheel({
     saveTools(tools);
     toolbar.update();
   },
+});
+
+// ---------- Werkzeugleiste anpassen (siehe toolbarconfig.js) ----------
+const toolbarConfig = setupToolbarConfig();
+document.getElementById('btn-customize').addEventListener('click', () => {
+  toolbar.closePopup();
+  toolbarConfig.open();
 });
 
 undoButton.addEventListener('click', undo);

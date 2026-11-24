@@ -331,6 +331,9 @@ export function setupInput(canvas, app) {
       buttonReleasedAt = -Infinity;
     }
 
+    // Schweben ohne Knopf: z. B. Laserpointer-Punkt zeigen
+    if (e.pointerType === 'pen' || e.pointerType === 'mouse') app.penHover?.(!touching && !ended && !eraser && e.type === 'pointermove' ? screenPos(e) : null);
+
     // 3. Radierer-Kreis anzeigen – auch schon beim Schweben mit gedrücktem Knopf
     if (eraser && !ended) {
       app.showEraser(screenPos(e));
@@ -518,6 +521,7 @@ export function setupInput(canvas, app) {
 
   // Stift verlässt den Schwebe-Bereich -> Radierer-Kreis weg
   canvas.addEventListener('pointerleave', (e) => {
+    if (e.pointerType !== 'touch') app.penHover?.(null);
     if (e.pointerType !== 'touch' && eraserShown && penMode === 'none') {
       app.showEraser(null);
       eraserShown = false;

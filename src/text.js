@@ -28,18 +28,70 @@ import '@fontsource/merriweather/latin-700-italic.css';
 import '@fontsource/caveat/latin-400.css';
 import '@fontsource/caveat/latin-700.css';
 import '@fontsource/patrick-hand/latin-400.css';
+import '@fontsource/atkinson-hyperlegible/latin-400.css';
+import '@fontsource/atkinson-hyperlegible/latin-700.css';
+import '@fontsource/atkinson-hyperlegible/latin-400-italic.css';
+import '@fontsource/atkinson-hyperlegible/latin-700-italic.css';
+import '@fontsource/fredoka/latin-400.css';
+import '@fontsource/fredoka/latin-700.css';
+import '@fontsource/oswald/latin-400.css';
+import '@fontsource/oswald/latin-700.css';
+import '@fontsource/lora/latin-400.css';
+import '@fontsource/lora/latin-700.css';
+import '@fontsource/lora/latin-400-italic.css';
+import '@fontsource/lora/latin-700-italic.css';
+import '@fontsource/playfair-display/latin-400.css';
+import '@fontsource/playfair-display/latin-700.css';
+import '@fontsource/playfair-display/latin-400-italic.css';
+import '@fontsource/playfair-display/latin-700-italic.css';
+import '@fontsource/roboto-slab/latin-400.css';
+import '@fontsource/roboto-slab/latin-700.css';
+import '@fontsource/jetbrains-mono/latin-400.css';
+import '@fontsource/jetbrains-mono/latin-700.css';
+import '@fontsource/jetbrains-mono/latin-400-italic.css';
+import '@fontsource/jetbrains-mono/latin-700-italic.css';
+import '@fontsource/comic-neue/latin-400.css';
+import '@fontsource/comic-neue/latin-700.css';
+import '@fontsource/comic-neue/latin-400-italic.css';
+import '@fontsource/comic-neue/latin-700-italic.css';
+import '@fontsource/indie-flower/latin-400.css';
+import '@fontsource/schoolbell/latin-400.css';
+import '@fontsource/dancing-script/latin-400.css';
+import '@fontsource/dancing-script/latin-700.css';
+import '@fontsource/permanent-marker/latin-400.css';
+import '@fontsource/pacifico/latin-400.css';
 
 import { displayColor, highlighterColor, inkTheme } from './ink.js';
 import { apply as applyMatrix, scaleOf } from './geometry.js';
 
 // Die Schriftarten. Die meisten liegen in der App selbst (funktionieren also offline).
 export const FONTS = [
-  { id: 'sans', name: 'Standard', css: 'system-ui, Roboto, "Segoe UI", sans-serif' },
-  { id: 'round', name: 'Rund', css: '"Nunito", system-ui, sans-serif' },
-  { id: 'serif', name: 'Buch', css: '"Merriweather", Georgia, serif' },
-  { id: 'mono', name: 'Schreibmaschine', css: 'ui-monospace, "Roboto Mono", "Courier New", monospace' },
-  { id: 'hand', name: 'Handschrift', css: '"Caveat", cursive' },
-  { id: 'print', name: 'Druckschrift', css: '"Patrick Hand", cursive' },
+  // Klar und gut lesbar
+  { id: 'sans', name: 'Standard', group: 'Klar', css: 'system-ui, Roboto, "Segoe UI", sans-serif' },
+  { id: 'round', name: 'Rund', group: 'Klar', css: '"Nunito", system-ui, sans-serif' },
+  { id: 'clear', name: 'Gut lesbar', group: 'Klar', css: '"Atkinson Hyperlegible", system-ui, sans-serif' },
+  { id: 'soft', name: 'Weich', group: 'Klar', css: '"Fredoka", system-ui, sans-serif' },
+  { id: 'narrow', name: 'Schmal', group: 'Klar', css: '"Oswald", system-ui, sans-serif' },
+  // Mit Serifen (wie im Buch)
+  { id: 'serif', name: 'Buch', group: 'Buch', css: '"Merriweather", Georgia, serif' },
+  { id: 'classic', name: 'Klassisch', group: 'Buch', css: '"Lora", Georgia, serif' },
+  { id: 'elegant', name: 'Elegant', group: 'Buch', css: '"Playfair Display", Georgia, serif' },
+  { id: 'slab', name: 'Kräftig', group: 'Buch', css: '"Roboto Slab", Georgia, serif' },
+  { id: 'mono', name: 'Schreibmaschine', group: 'Buch', css: '"JetBrains Mono", ui-monospace, "Courier New", monospace' },
+  // Wie von Hand geschrieben
+  { id: 'hand', name: 'Handschrift', group: 'Hand', css: '"Caveat", cursive' },
+  { id: 'print', name: 'Druckschrift', group: 'Hand', css: '"Patrick Hand", cursive' },
+  { id: 'comic', name: 'Comic', group: 'Hand', css: '"Comic Neue", cursive' },
+  { id: 'school', name: 'Schulheft', group: 'Hand', css: '"Schoolbell", cursive' },
+  { id: 'flower', name: 'Locker', group: 'Hand', css: '"Indie Flower", cursive' },
+  { id: 'script', name: 'Schreibschrift', group: 'Hand', css: '"Dancing Script", cursive' },
+  { id: 'marker', name: 'Marker', group: 'Hand', css: '"Permanent Marker", cursive' },
+  { id: 'brush', name: 'Pinsel', group: 'Hand', css: '"Pacifico", cursive' },
+];
+export const FONT_GROUPS = [
+  { id: 'Klar', name: 'Klar' },
+  { id: 'Buch', name: 'Mit Serifen' },
+  { id: 'Hand', name: 'Handgeschrieben' },
 ];
 const fontById = Object.fromEntries(FONTS.map((f) => [f.id, f]));
 export const fontCss = (id) => (fontById[id] || FONTS[0]).css;

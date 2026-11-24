@@ -9,7 +9,7 @@
 
 import { createStroke, finishStroke, fillStroke, inkTheme, setInkTheme } from './ink.js';
 import {
-  PEN_TYPES, COLOR_PAGES, HIGHLIGHTER_COLORS, SIZE_RANGE, MAX_FAVORITES,
+  PEN_TYPES, COLOR_PAGES, HIGHLIGHTER_COLORS, LASER_COLORS, LASER_DURATIONS, SIZE_RANGE, MAX_FAVORITES,
   saveTools, activeStyle, settingsOf, rememberColor, isActiveFavorite,
 } from './tools.js';
 import { penSVG, isLight } from './pens.js';
@@ -17,7 +17,7 @@ import { createColorPicker } from './colorpicker.js';
 import { paint } from './paint.js';
 import { SHAPE_KINDS, FILL_MODES, shapeFromDrag, densify, fillable } from './shapes.js';
 
-const NAMES = { highlighter: 'Textmarker', eraser: 'Radierer', shape: 'Formen', lasso: 'Lasso', fill: 'Füllen' };
+const NAMES = { highlighter: 'Textmarker', eraser: 'Radierer', shape: 'Formen', lasso: 'Lasso', fill: 'Füllen', laser: 'Laserpointer' };
 for (const t of PEN_TYPES) NAMES[t.id] = t.name;
 export const penName = (type) => NAMES[type] || type;
 
@@ -46,7 +46,7 @@ export function setupToolbar({ tools, onToolChange, onClear }) {
   let picker = null;
 
   // Welche Stift-Einstellungen bearbeitet das offene Popup?
-  const editType = () => (openFor === 'highlighter' || openFor === 'shape' || openFor === 'fill' ? openFor : tools.penType);
+  const editType = () => (['highlighter', 'shape', 'fill', 'laser'].includes(openFor) ? openFor : tools.penType);
   const edited = () => settingsOf(tools, editType());
 
   // ---------- Werkzeug wählen ----------
@@ -66,7 +66,7 @@ export function setupToolbar({ tools, onToolChange, onClear }) {
       btn.classList.toggle('active', tool === tools.tool);
       btn.setAttribute('aria-pressed', tool === tools.tool);
       const color =
-        tool === 'pen' ? tools.pens[tools.penType].color : tool === 'highlighter' ? tools.highlighter.color : tool === 'shape' ? tools.shape.color : tool === 'fill' ? tools.fill.color : '';
+        tool === 'pen' ? tools.pens[tools.penType].color : tool === 'highlighter' ? tools.highlighter.color : tool === 'shape' ? tools.shape.color : tool === 'fill' ? tools.fill.color : tool === 'laser' ? tools.laser.color : '';
       if (color) {
         btn.style.setProperty('--swatch', color);
         btn.querySelector('.swatch canvas').dataset.c = color;
@@ -239,6 +239,21 @@ export function setupToolbar({ tools, onToolChange, onClear }) {
         <div class="picker" hidden></div>
         <p class="popup-hint">Tipp: Mit jedem Stift ungefähr zeichnen und am Ende den Stift kurz stillhalten – die Form wird von selbst perfekt.</p>`;
     }
+    if (tool === 'laser') {
+      return `${head('Laserpointer', false)}
+        <canvas class="preview laser-preview"></canvas>
+        ${stepper('size')}
+        <div class="seg-row"><span>Art</span><div class="seg">
+          <button data-lzmode="trail">Leuchtspur</button><button data-lzmode="dot">Nur Punkt</button>
+        </div></div>
+        <div class="seg-row"><span>Verblasst nach</span><div class="seg">
+          ${LASER_DURATIONS.map((d) => `<button data-lzdur="${d.value}">${d.name}</button>`).join('')}
+        </div></div>
+        <div class="color-row"></div>
+        <div class="page-dots"></div>
+        <div class="picker" hidden></div>
+        <p class="popup-hint">Zum Zeigen und Erklären: Was du mit dem Laserpointer malst, wird nicht gespeichert und verschwindet von selbst.</p>`;
+    }
     if (tool === 'fill') {
       return `${head('Füllen', false)}
         <canvas class="preview fill-preview"></canvas>
@@ -368,6 +383,8 @@ export function setupToolbar({ tools, onToolChange, onClear }) {
     popup.querySelector('[data-star]')?.classList.toggle('on', fav);
     for (const b of popup.querySelectorAll('[data-shape]')) b.classList.toggle('selected', b.dataset.shape === tools.shape.kind);
     for (const b of popup.querySelectorAll('[data-falpha]')) b.classList.toggle('selected', Number(b.dataset.falpha) === tools.fill.alpha);
+    for (const b of popup.querySelectorAll('[data-lzmode]')) b.classList.toggle('selected', b.dataset.lzmode === tools.laser.mode);
+    for (const b of popup.querySelectorAll('[data-lzdur]')) b.classList.toggle('selected', Number(b.dataset.lzdur) === tools.laser.duration);
     for (const b of popup.querySelectorAll('[data-fill]')) {
       b.classList.toggle('selected', b.dataset.fill === tools.shape.fill);
       b.disabled = !fillable(tools.shape.kind);
@@ -384,7 +401,7 @@ export function setupToolbar({ tools, onToolChange, onClear }) {
     }
 
     // Farbreihe: aktuelle Seite + Regenbogen-Knopf für die Palette
-    const pages = tool === 'highlighter' ? [tools.recent, HIGHLIGHTER_COLORS] : [tools.recent, ...COLOR_PAGES];
+    const pages = tool === 'highlighter' ? [tools.recent, HIGHLIGHTER_COLORS] : tool === 'laser' ? [tools.recent, LASER_COLORS] : [tools.recent, ...COLOR_PAGES];
     colorPage = Math.min(colorPage, pages.length - 1);
     const colors = pages[colorPage].slice(0, 8);
     popup.querySelector('.color-row').innerHTML =
@@ -399,6 +416,7 @@ export function setupToolbar({ tools, onToolChange, onClear }) {
 
     if (tool === 'shape') drawShapeSample(popup.querySelector('.preview'), tools.shape);
     else if (tool === 'fill') drawFillSample(popup.querySelector('.preview'), tools.fill);
+    else if (tool === 'laser') drawLaserSample(popup.querySelector('.preview'), tools.laser);
     else drawSample(popup.querySelector('.preview'), { type, ...s });
   }
 
@@ -426,8 +444,10 @@ export function setupToolbar({ tools, onToolChange, onClear }) {
       saveTools(tools);
       refresh();
     }
-    if (d.shape || d.fill || d.lmode || d.lwhat || d.falpha) {
+    if (d.shape || d.fill || d.lmode || d.lwhat || d.falpha || d.lzmode || d.lzdur) {
       if (d.falpha) tools.fill.alpha = Number(d.falpha);
+      if (d.lzmode) tools.laser.mode = d.lzmode;
+      if (d.lzdur) tools.laser.duration = Number(d.lzdur);
       if (d.shape) tools.shape.kind = d.shape;
       if (d.fill) tools.shape.fill = d.fill;
       if (d.lmode) tools.lasso.mode = d.lmode;
@@ -540,6 +560,39 @@ const FILL_ALPHAS = [
   { value: 0.6, name: 'Mittel' },
   { value: 0.3, name: 'Leicht' },
 ];
+
+// Vorschau Laserpointer: leuchtende Schleife auf dunklem Grund
+function drawLaserSample(canvas, { color, size }) {
+  const dpr = window.devicePixelRatio || 1;
+  const w = canvas.clientWidth;
+  const h = canvas.clientHeight;
+  canvas.width = Math.round(w * dpr);
+  canvas.height = Math.round(h * dpr);
+  const ctx = canvas.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.fillStyle = '#1d2027';
+  ctx.fillRect(0, 0, w, h);
+  const path = new Path2D();
+  const m = 24;
+  for (let i = 0; i <= 80; i++) {
+    const t = i / 80;
+    const x = m + t * (w - m * 2);
+    const y = h / 2 - Math.sin(t * Math.PI * 2.2) * h * 0.24;
+    if (i) path.lineTo(x, y);
+    else path.moveTo(x, y);
+  }
+  ctx.lineCap = ctx.lineJoin = 'round';
+  ctx.shadowColor = color;
+  ctx.shadowBlur = size * 2.2;
+  ctx.strokeStyle = color;
+  ctx.lineWidth = size;
+  ctx.stroke(path);
+  ctx.shadowBlur = 0;
+  ctx.stroke(path);
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.75)';
+  ctx.lineWidth = Math.max(1.2, size * 0.36);
+  ctx.stroke(path);
+}
 
 // Vorschau Farbeimer: eine Wolke mit Rand, innen gefüllt
 function drawFillSample(canvas, { color, alpha }) {
