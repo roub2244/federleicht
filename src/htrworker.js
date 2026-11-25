@@ -62,7 +62,8 @@ self.onmessage = async (e) => {
       }
       if (!feats.length) return self.postMessage({ id, ok: true, W: null });
       const r = adaptLinear(feats, m.model.t['fc.w'], m.model.t['fc.b'], n, C, {
-        epochs: Math.max(6, Math.min(20, Math.round(1200 / feats.length))),
+        epochs: Math.max(8, Math.min(25, Math.round(2400 / feats.length))),
+        keep: 1e-3,
         onProgress: (p) => self.postMessage({ id, progress: p }),
       });
       personal = { W: r.W, B: r.B };
