@@ -185,23 +185,31 @@ function renderPreview(strokes) {
 // fehlt), nehmen wir wie früher Tesseract.
 let useTesseract = false;
 export async function recognizeLines(lines, onLine, imgs = null) {
-  const out = [];
+  const out = new Array(lines.length).fill('');
+  // Eigenes Modell: mehrere Zeilen gleichzeitig (htr.js verteilt sie auf mehrere Helfer)
+  if (!useTesseract) {
+    try {
+      let done = 0;
+      onLine?.(0, lines.length);
+      await Promise.all(
+        lines.map(async (line, i) => {
+          const r = await recognizePolys(linePolys(line));
+          out[i] = cleanLine(r.text);
+          if (imgs) imgs[i] = r.img;
+          onLine?.(++done, lines.length);
+        })
+      );
+      return out;
+    } catch (err) {
+      console.warn('Handschrift-Modell geht nicht, nehme Tesseract', err);
+      useTesseract = true;
+    }
+  }
   for (let i = 0; i < lines.length; i++) {
     onLine?.(i, lines.length);
-    if (!useTesseract) {
-      try {
-        const r = await recognizePolys(linePolys(lines[i]));
-        out.push(cleanLine(r.text));
-        if (imgs) imgs[i] = r.img;
-        continue;
-      } catch (err) {
-        console.warn('Handschrift-Modell geht nicht, nehme Tesseract', err);
-        useTesseract = true;
-      }
-    }
     const worker = await getWorker();
     const { data } = await worker.recognize(renderLine(lines[i]));
-    out.push(cleanLine(data.text.replace(/\n+/g, ' ')));
+    out[i] = cleanLine(data.text.replace(/\n+/g, ' '));
   }
   return out;
 }
@@ -350,7 +358,7 @@ export async function convertHandwriting({ page, strokes, commit, newZ }) {
   let texts;
   const imgs = [];
   try {
-    texts = await recognizeLines(lines, (i, n) => progress.update(`Handschrift wird gelesen … Zeile ${i + 1} von ${n}`, i / n), imgs);
+    texts = await recognizeLines(lines, (i, n) => progress.update(`Handschrift wird gelesen … ${i} von ${n} Zeilen fertig`, i / n), imgs);
   } catch (err) {
     console.error(err);
     progress.close();

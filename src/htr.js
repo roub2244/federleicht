@@ -13,49 +13,62 @@
 import { getBlob, putBlob, deleteBlob } from './store.js';
 
 const H = 40;
-let worker = null;
 let seq = 0;
 const waiting = new Map();
 
-function getWorker() {
-  if (!worker) {
-    worker = new Worker(new URL('./htrworker.js', import.meta.url), { type: 'module' });
-    worker.onmessage = (e) => {
-      const p = waiting.get(e.data.id);
-      if (!p) return;
-      if (e.data.progress != null) return p.onProgress?.(e.data.progress);
-      waiting.delete(e.data.id);
-      e.data.ok ? p.resolve(e.data) : p.reject(new Error(e.data.error));
-    };
-    worker.onerror = (e) => {
-      for (const p of waiting.values()) p.reject(new Error(e.message || 'Worker-Fehler'));
-      waiting.clear();
-      worker = null;
-    };
-  }
-  return worker;
-}
+// Mehrere Hintergrund-Helfer (Worker): Das Tablet hat 8 Rechenkerne, also lesen wir mehrere
+// Zeilen gleichzeitig. Jeder Helfer lädt das Modell einmal selbst.
+const POOL = Math.max(1, Math.min(3, (navigator.hardwareConcurrency || 4) - 2));
+const slots = []; // { w, busy, personalP }
 
-function post(msg, transfer = [], onProgress = null) {
+function makeSlot(i) {
+  const slot = { w: null, busy: 0, personalP: null };
+  slot.w = new Worker(new URL('./htrworker.js', import.meta.url), { type: 'module' });
+  slot.w.onmessage = (e) => {
+    const p = waiting.get(e.data.id);
+    if (!p) return;
+    if (e.data.progress != null) return p.onProgress?.(e.data.progress);
+    waiting.delete(e.data.id);
+    slot.busy--;
+    e.data.ok ? p.resolve(e.data) : p.reject(new Error(e.data.error));
+  };
+  slot.w.onerror = (e) => {
+    for (const [id, p] of waiting) if (p.slot === slot) {
+      p.reject(new Error(e.message || 'Worker-Fehler'));
+      waiting.delete(id);
+    }
+    slots[i] = null;
+  };
+  slots[i] = slot;
+  return slot;
+}
+const slotAt = (i) => slots[i] || makeSlot(i);
+
+function post(slot, msg, transfer = [], onProgress = null) {
   const id = ++seq;
-  const w = getWorker();
+  slot.busy++;
   return new Promise((resolve, reject) => {
-    waiting.set(id, { resolve, reject, onProgress });
-    w.postMessage({ id, base: document.baseURI.replace(/[^/]*$/, ''), ...msg }, transfer);
+    waiting.set(id, { resolve, reject, onProgress, slot });
+    slot.w.postMessage({ id, base: document.baseURI.replace(/[^/]*$/, ''), ...msg }, transfer);
   });
 }
 
-// Vor der ersten Frage an einen (neuen) Worker: deine gelernte Schrift mitgeben
-let personalFor = null;
-let personalP = null;
-async function ask(msg, transfer = [], onProgress = null) {
-  getWorker();
-  if (personalFor !== worker) {
-    personalFor = worker;
-    personalP = sendPersonal();
+// Vor der ersten Frage an einen (neuen) Helfer: deine gelernte Schrift mitgeben
+async function ask(msg, transfer = [], onProgress = null, index = null) {
+  let slot;
+  if (index != null) slot = slotAt(index);
+  else {
+    // freiesten Helfer nehmen (neue erst anlegen, wenn alle beschäftigt sind)
+    for (let i = 0; i < POOL; i++) {
+      const s = slots[i];
+      if (!s) { slot = slotAt(i); break; }
+      if (!slot || s.busy < slot.busy) slot = s;
+      if (s.busy === 0) break;
+    }
   }
-  await personalP;
-  return post(msg, transfer, onProgress);
+  if (!slot.personalP) slot.personalP = sendPersonal(slot);
+  await slot.personalP;
+  return post(slot, msg, transfer, onProgress);
 }
 
 // ---------- Lernt deine Schrift ----------
@@ -76,7 +89,7 @@ async function readJSON(id) {
   }
 }
 
-async function sendPersonal() {
+async function sendPersonal(slot) {
   try {
     const [data, ad] = await Promise.all([readJSON(SAMPLES), getBlob(ADAPT)]);
     let W = null, B = null;
@@ -86,7 +99,7 @@ async function sendPersonal() {
       B = all.slice(1, 1 + nb);
       W = all.slice(1 + nb);
     }
-    if (W || data?.words?.length) await post({ type: 'personal', W, B, words: data?.words || [] });
+    if (W || data?.words?.length) await post(slot, { type: 'personal', W, B, words: data?.words || [] });
   } catch (err) {
     console.warn('Eigene Schrift konnte nicht geladen werden', err);
   }
@@ -121,7 +134,7 @@ export async function learnFrom(pairs, onProgress) {
     for (let i = 0; i < q.length; i++) d[i] = q[i] / 255;
     return { img: d, w: s.w, h: H, text: s.text, key: `${s.t}:${s.text}` };
   });
-  const r = await ask({ type: 'adapt', samples, words: data.words }, [], onProgress);
+  const r = await ask({ type: 'adapt', samples, words: data.words }, [], onProgress, 0);
   if (r.W) {
     const all = new Float32Array(1 + r.B.length + r.W.length);
     all[0] = r.B.length;
@@ -129,6 +142,8 @@ export async function learnFrom(pairs, onProgress) {
     all.set(r.W, 1 + r.B.length);
     await putBlob(ADAPT, new Blob([all.buffer], { type: 'application/octet-stream' }));
   }
+  // die anderen Helfer bekommen das Gelernte auch
+  for (let i = 1; i < slots.length; i++) if (slots[i]) slots[i].personalP = sendPersonal(slots[i]);
   return { lines: data.samples.length, before: r.before, after: r.after };
 }
 
@@ -136,7 +151,7 @@ export async function learnFrom(pairs, onProgress) {
 export async function forgetLearned() {
   await deleteBlob(SAMPLES);
   await deleteBlob(ADAPT);
-  if (worker) await post({ type: 'forget' });
+  await Promise.all(slots.filter(Boolean).map((s) => post(s, { type: 'forget' })));
 }
 
 function bytesToB64(bytes) {

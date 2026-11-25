@@ -38,42 +38,90 @@ function f16ToF32(h) {
 // Bild/Merkmale: { c, h, w, d: Float32Array (c*h*w) }
 
 // 3x3-Faltung mit Rand 1, danach (optional) ReLU
+// Schnell gemacht: Das Eingabebild bekommt einen Rand aus Nullen (keine Abfragen am Rand nötig),
+// und es werden immer 4 Ausgabe-Kanäle auf einmal gerechnet: Die 9 Nachbar-Pixel werden einmal
+// gelesen und für alle 4 benutzt. Das ist auf dem Tablet etwa doppelt so schnell.
+const Z9 = new Float32Array(9);
 export function conv3(x, W, B, cout, relu = true) {
   const { c: cin, h, w, d } = x;
-  const out = new Float32Array(cout * h * w);
   const plane = h * w;
-  for (let o = 0; o < cout; o++) {
-    const dst = out.subarray(o * plane, (o + 1) * plane);
-    dst.fill(B[o]);
+  const pw = w + 2, pplane = (h + 2) * pw;
+  const pad = new Float32Array(cin * pplane);
+  for (let i = 0; i < cin; i++) for (let y = 0; y < h; y++) pad.set(d.subarray(i * plane + y * w, i * plane + y * w + w), i * pplane + (y + 1) * pw + 1);
+  const out = new Float32Array(cout * plane);
+  for (let o = 0; o < cout; o++) out.fill(B[o], o * plane, (o + 1) * plane);
+  for (let o0 = 0; o0 < cout; o0 += 4) {
+    const n4 = Math.min(4, cout - o0);
+    const D0 = out.subarray(o0 * plane, (o0 + 1) * plane);
+    const D1 = n4 > 1 ? out.subarray((o0 + 1) * plane, (o0 + 2) * plane) : new Float32Array(plane);
+    const D2 = n4 > 2 ? out.subarray((o0 + 2) * plane, (o0 + 3) * plane) : new Float32Array(plane);
+    const D3 = n4 > 3 ? out.subarray((o0 + 3) * plane, (o0 + 4) * plane) : new Float32Array(plane);
     for (let i = 0; i < cin; i++) {
-      const src = d.subarray(i * plane, (i + 1) * plane);
-      const k = (o * cin + i) * 9;
-      const k0 = W[k], k1 = W[k + 1], k2 = W[k + 2], k3 = W[k + 3], k4 = W[k + 4], k5 = W[k + 5], k6 = W[k + 6], k7 = W[k + 7], k8 = W[k + 8];
+      const P = pad.subarray(i * pplane, (i + 1) * pplane);
+      const wb0 = (o0 * cin + i) * 9;
+      const W0 = W;
+      const W1 = n4 > 1 ? W : Z9, wb1 = n4 > 1 ? ((o0 + 1) * cin + i) * 9 : 0;
+      const W2 = n4 > 2 ? W : Z9, wb2 = n4 > 2 ? ((o0 + 2) * cin + i) * 9 : 0;
+      const W3 = n4 > 3 ? W : Z9, wb3 = n4 > 3 ? ((o0 + 3) * cin + i) * 9 : 0;
+      const a00 = W0[wb0 + 0];
+      const a01 = W0[wb0 + 1];
+      const a02 = W0[wb0 + 2];
+      const a03 = W0[wb0 + 3];
+      const a04 = W0[wb0 + 4];
+      const a05 = W0[wb0 + 5];
+      const a06 = W0[wb0 + 6];
+      const a07 = W0[wb0 + 7];
+      const a08 = W0[wb0 + 8];
+      const a10 = W1[wb1 + 0];
+      const a11 = W1[wb1 + 1];
+      const a12 = W1[wb1 + 2];
+      const a13 = W1[wb1 + 3];
+      const a14 = W1[wb1 + 4];
+      const a15 = W1[wb1 + 5];
+      const a16 = W1[wb1 + 6];
+      const a17 = W1[wb1 + 7];
+      const a18 = W1[wb1 + 8];
+      const a20 = W2[wb2 + 0];
+      const a21 = W2[wb2 + 1];
+      const a22 = W2[wb2 + 2];
+      const a23 = W2[wb2 + 3];
+      const a24 = W2[wb2 + 4];
+      const a25 = W2[wb2 + 5];
+      const a26 = W2[wb2 + 6];
+      const a27 = W2[wb2 + 7];
+      const a28 = W2[wb2 + 8];
+      const a30 = W3[wb3 + 0];
+      const a31 = W3[wb3 + 1];
+      const a32 = W3[wb3 + 2];
+      const a33 = W3[wb3 + 3];
+      const a34 = W3[wb3 + 4];
+      const a35 = W3[wb3 + 5];
+      const a36 = W3[wb3 + 6];
+      const a37 = W3[wb3 + 7];
+      const a38 = W3[wb3 + 8];
       for (let y = 0; y < h; y++) {
-        const row = y * w;
-        const up = y > 0 ? row - w : -1;
-        const dn = y < h - 1 ? row + w : -1;
+        const o = y * w;
+        const q0 = y * pw, q1 = q0 + pw, q2 = q1 + pw;
         for (let xx = 0; xx < w; xx++) {
-          const l = xx > 0, r = xx < w - 1;
-          let s = src[row + xx] * k4;
-          if (l) s += src[row + xx - 1] * k3;
-          if (r) s += src[row + xx + 1] * k5;
-          if (up >= 0) {
-            s += src[up + xx] * k1;
-            if (l) s += src[up + xx - 1] * k0;
-            if (r) s += src[up + xx + 1] * k2;
-          }
-          if (dn >= 0) {
-            s += src[dn + xx] * k7;
-            if (l) s += src[dn + xx - 1] * k6;
-            if (r) s += src[dn + xx + 1] * k8;
-          }
-          dst[row + xx] += s;
+          const b0 = q0 + xx, b1 = q1 + xx, b2 = q2 + xx;
+            const v0 = P[b0 + 0];
+            const v1 = P[b0 + 1];
+            const v2 = P[b0 + 2];
+            const v3 = P[b1 + 0];
+            const v4 = P[b1 + 1];
+            const v5 = P[b1 + 2];
+            const v6 = P[b2 + 0];
+            const v7 = P[b2 + 1];
+            const v8 = P[b2 + 2];
+            D0[o + xx] += a00 * v0 + a01 * v1 + a02 * v2 + a03 * v3 + a04 * v4 + a05 * v5 + a06 * v6 + a07 * v7 + a08 * v8;
+            D1[o + xx] += a10 * v0 + a11 * v1 + a12 * v2 + a13 * v3 + a14 * v4 + a15 * v5 + a16 * v6 + a17 * v7 + a18 * v8;
+            D2[o + xx] += a20 * v0 + a21 * v1 + a22 * v2 + a23 * v3 + a24 * v4 + a25 * v5 + a26 * v6 + a27 * v7 + a28 * v8;
+            D3[o + xx] += a30 * v0 + a31 * v1 + a32 * v2 + a33 * v3 + a34 * v4 + a35 * v5 + a36 * v6 + a37 * v7 + a38 * v8;
         }
       }
     }
-    if (relu) for (let j = 0; j < plane; j++) if (dst[j] < 0) dst[j] = 0;
   }
+  if (relu) for (let j = 0; j < out.length; j++) if (out[j] < 0) out[j] = 0;
   return { c: cout, h, w, d: out };
 }
 
@@ -94,22 +142,32 @@ export function maxpool(x, ph, pw) {
 }
 
 // LSTM über eine Folge (T x n), eine Richtung. Gewichte wie PyTorch: Gates i, f, g, o
+// Skalarprodukt mit 4 Teilsummen (der Prozessor kann sie gleichzeitig rechnen)
+function dotp(W, wi, v, vi, n) {
+  let s0 = 0, s1 = 0, s2 = 0, s3 = 0;
+  let k = 0;
+  for (; k + 3 < n; k += 4) {
+    s0 += W[wi + k] * v[vi + k];
+    s1 += W[wi + k + 1] * v[vi + k + 1];
+    s2 += W[wi + k + 2] * v[vi + k + 2];
+    s3 += W[wi + k + 3] * v[vi + k + 3];
+  }
+  for (; k < n; k++) s0 += W[wi + k] * v[vi + k];
+  return s0 + s1 + s2 + s3;
+}
+
 function lstmDir(seq, T, n, Wih, Whh, b, H, reverse) {
   const out = new Float32Array(T * H);
   const hs = new Float32Array(H);
   const cs = new Float32Array(H);
-  const g = new Float32Array(4 * H);
+  const G = 4 * H;
+  // Eingabe-Anteil für alle Zeitschritte vorab (unabhängig voneinander)
+  const xin = new Float32Array(T * G);
+  for (let t = 0; t < T; t++) for (let j = 0; j < G; j++) xin[t * G + j] = b[j] + dotp(Wih, j * n, seq, t * n, n);
+  const g = new Float32Array(G);
   for (let step = 0; step < T; step++) {
     const t = reverse ? T - 1 - step : step;
-    const xt = seq.subarray(t * n, (t + 1) * n);
-    for (let j = 0; j < 4 * H; j++) {
-      let s = b[j];
-      const wi = j * n;
-      for (let k = 0; k < n; k++) s += Wih[wi + k] * xt[k];
-      const wh = j * H;
-      for (let k = 0; k < H; k++) s += Whh[wh + k] * hs[k];
-      g[j] = s;
-    }
+    for (let j = 0; j < G; j++) g[j] = xin[t * G + j] + dotp(Whh, j * H, hs, 0, H);
     for (let k = 0; k < H; k++) {
       const i = sigm(g[k]);
       const f = sigm(g[H + k]);
@@ -137,15 +195,7 @@ export function bilstm(seq, T, n, t, prefix, H) {
 
 export function linear(v, rows, n, W, B, m) {
   const out = new Float32Array(rows * m);
-  for (let r = 0; r < rows; r++) {
-    for (let j = 0; j < m; j++) {
-      let s = B[j];
-      const wj = j * n;
-      const vr = r * n;
-      for (let k = 0; k < n; k++) s += W[wj + k] * v[vr + k];
-      out[r * m + j] = s;
-    }
-  }
+  for (let r = 0; r < rows; r++) for (let j = 0; j < m; j++) out[r * m + j] = B[j] + dotp(W, j * n, v, r * n, n);
   return out;
 }
 
