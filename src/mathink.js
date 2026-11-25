@@ -377,11 +377,16 @@ function parseRegion(list, h, symbols) {
   for (const s of [...rest].sort((a, b) => W(b.box) - W(a.box))) {
     if (!rest.includes(s) || W(s.box) < h * 0.9 || s.points.length < 4) continue;
     const b = s.box;
-    const inner = rest.filter((o) => o !== s && cx(o.box) > b.minX + W(b) * 0.3 && cx(o.box) < b.maxX + h * 0.1 && cy(o.box) > b.minY && cy(o.box) < b.maxY + h * 0.2);
+    const lowX = s.points.reduce((m, q) => (q[1] > m[1] ? q : m), s.points[0])[0];
+    const inner = rest.filter((o) => o !== s && cx(o.box) > Math.min(lowX + h * 0.1, b.minX + W(b) * 0.3) && cx(o.box) < b.maxX + h * 0.1 && cy(o.box) > b.minY && cy(o.box) < b.maxY + h * 0.2);
     if (!inner.length) continue;
-    const ranked = classifyCloud([localPts(s)]);
-    const root = ranked.find((r) => r[0] === '√');
-    if (!root || root[1] > ranked[0][1] * 1.08 || !rootShape(s)) continue;
+    if (!rootShape(s)) continue;
+    // Haken + langes Dach oben = Wurzel (auch wenn das Dach über eine lange Rechnung geht)
+    if (!hasRoof(s)) {
+      const ranked = classifyCloud([localPts(s)]);
+      const root = ranked.find((r) => r[0] === '√');
+      if (!root || root[1] > ranked[0][1] * 1.08) continue;
+    }
     rest = rest.filter((o) => o !== s && !inner.includes(o));
     parts.push({ kind: 'root', box: boxOf([s, ...inner]), inner: parseRegion(inner, h, symbols), stroke: s });
   }
@@ -430,6 +435,7 @@ function parseRegion(list, h, symbols) {
   }
 
   parts.sort((a, b) => a.box.minX - b.box.minX || a.box.minY - b.box.minY);
+  balanceBrackets(parts);
   markSuperscripts(parts, h);
   return parts;
 }
@@ -444,6 +450,19 @@ function rootShape(s) {
   const start = p[0];
   const rightTop = (q) => q[0] > b.minX + W(b) * 0.6 && q[1] < b.minY + H(b) * 0.3;
   return low[0] < b.minX + W(b) * 0.45 && (rightTop(end) || rightTop(start));
+}
+
+// Wurzeldach: oben ein langer, fast waagerechter Teil, der rechts vom Haken weitergeht
+function hasRoof(s) {
+  const b = s.box;
+  const top = s.points.filter((q) => q[1] < b.minY + H(b) * 0.18);
+  if (top.length < 2) return false;
+  let lo = Infinity, hi = -Infinity;
+  for (const q of top) {
+    lo = Math.min(lo, q[0]);
+    hi = Math.max(hi, q[0]);
+  }
+  return hi - lo > W(b) * 0.4 && hi > b.minX + W(b) * 0.8;
 }
 
 function growColumn(rest, seed, bar, dir, h) {
@@ -501,6 +520,9 @@ function classify(g, h, all) {
   if (flats.length === 2 && strokes.length === 2) return set(sym, '=', ['-', '+']);
   if (flats.length === 1 && strokes.length === 3 && dots.length === 2) return set(sym, ':', ['=']);
   if (flats.length === 1 && strokes.length === 1) return set(sym, '-', ['=', '1']);
+  // Klammer: ein hoher, schmaler Strich, der in der Mitte deutlich zur Seite ausbeult
+  const paren = parenShape(strokes, b, h);
+  if (paren) return set(sym, paren, ['1', paren === '(' ? ')' : '(']);
   // Einzelner gerader Strich: 1 oder /
   if (strokes.length === 1 && straightness(strokes[0]) > 0.92 && size > h * 0.35) {
     const s = strokes[0];
@@ -516,6 +538,7 @@ function classify(g, h, all) {
   if (symModel) {
     const r = cnnRank(strokes.map(localPts));
     ranked = r.ranked.filter(([l]) => ALLOWED.has(l)).map(([l, p]) => [l, 1 - p]);
+    sym.probs = Object.fromEntries(r.ranked);
     // Deine eigene Schrift: sehr ähnlich zu einem Zeichen, das du schon verbessert hast?
     let best = null;
     for (const t of loadLearned()) {
@@ -533,10 +556,69 @@ function classify(g, h, all) {
   // "0" mit zwei Strichen ist eher eine 8? – nein: eher ein x oder +; der Erkenner hat das schon gewogen
   return set(sym, label, ranked.slice(0, 5).map((r) => r[0]).filter((l) => l !== label));
 }
+function parenShape(strokes, b, h) {
+  if (strokes.length !== 1 || H(b) < h * 0.5 || H(b) < W(b) * 2) return null;
+  const p = strokes[0].points;
+  if (p.length < 4) return null;
+  const f = p[0], l = p[p.length - 1];
+  const dy = l[1] - f[1];
+  if (Math.abs(dy) < H(b) * 0.7) return null;
+  // immer in eine Richtung (kein Fähnchen oben wie bei der 1)
+  let same = 0;
+  for (let i = 1; i < p.length; i++) if ((p[i][1] - p[i - 1][1]) * dy >= 0) same++;
+  if (same / (p.length - 1) < 0.85) return null;
+  let best = 0, at = 0;
+  for (const q of p) {
+    const xc = f[0] + ((q[1] - f[1]) / dy) * (l[0] - f[0]);
+    const off = q[0] - xc;
+    if (Math.abs(off) > Math.abs(best)) {
+      best = off;
+      at = (q[1] - b.minY) / H(b);
+    }
+  }
+  if (Math.abs(best) < H(b) * 0.07 || at < 0.2 || at > 0.8) return null;
+  return best < 0 ? '(' : ')';
+}
 function set(sym, label, alts) {
   sym.label = label;
   sym.alts = alts;
   return sym;
+}
+
+// Klammern ausgleichen: Steht irgendwo "(" ohne ")", ist wahrscheinlich ein Zeichen dahinter, das
+// das Modell für "3", ">" oder "1" hielt, in Wahrheit die ")". Wir nehmen das Zeichen, das am
+// ehesten eine Klammer sein könnte (umgekehrt genauso).
+function balanceBrackets(parts) {
+  const syms = parts.filter((p) => p.kind === 'sym');
+  for (let round = 0; round < 3; round++) {
+    let firstClose = -1, lastOpen = -1;
+    const opens = [];
+    syms.forEach((p, i) => {
+      const l = p.sym.label;
+      if (l === '(') opens.push(i);
+      else if (l === ')') {
+        if (opens.length) opens.pop();
+        else if (firstClose < 0) firstClose = i;
+      }
+    });
+    if (opens.length) lastOpen = opens[opens.length - 1];
+    let fix = null;
+    if (lastOpen >= 0) {
+      for (let i = lastOpen + 1; i < syms.length; i++) {
+        const q = syms[i].sym.probs?.[')'] ?? 0;
+        if (syms[i].sym.label !== '(' && q > 0.01 && (!fix || q > fix.q)) fix = { i, q, l: ')' };
+      }
+    } else if (firstClose >= 0) {
+      for (let i = 0; i < firstClose; i++) {
+        const q = syms[i].sym.probs?.['('] ?? 0;
+        if (syms[i].sym.label !== ')' && q > 0.01 && (!fix || q > fix.q)) fix = { i, q, l: '(' };
+      }
+    }
+    if (!fix) return;
+    const sym = syms[fix.i].sym;
+    sym.alts = [sym.label, ...sym.alts.filter((a) => a !== fix.l && a !== sym.label)];
+    sym.label = fix.l;
+  }
 }
 
 // Hochzahlen: kleineres Zeichen, deutlich höher als das Zeichen davor
