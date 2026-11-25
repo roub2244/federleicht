@@ -21,7 +21,7 @@ import * as store from './store.js';
 import { setupHome } from './home.js';
 import { askText, toast, progressBox, chooseAction } from './dialog.js';
 import { setupLasso } from './lasso.js';
-import { recognizeShape, shapeFromDrag, densify, transformShape, FILL_MODES, fillable } from './shapes.js';
+import { recognizeShape, shapeFromDrag, densify, transformShape, FILL_MODES, fillable, fitsShape } from './shapes.js';
 import { prepareImage, createImageItem, placeMatrix, remember, canvasBlob, onMediaLoaded, ensureLoaded, imageIdsOf, fileIdsOf, mediaSettings, pageDark } from './media.js';
 import { importPdf, scheduleSharp } from './pdfdoc.js';
 import { exportPdf, exportImage, renderPage, fileName, canShareFile, shareFile, downloadFile } from './export.js';
@@ -519,6 +519,8 @@ function straightenCurrentStroke() {
   // Textmarker: nur gerade Linien (zum Unterstreichen und Markieren)
   const shape = recognizeShape(current.points, { onlyLine: current.tool === 'highlighter' });
   if (!shape) return;
+  // Schrift bleibt Schrift: kurzes Stehenbleiben mitten im Wort macht keine Form daraus
+  if (!fitsShape(current.points, shape)) return;
   if (shape.kind === 'line' && !longEnough(start, end, view.scale)) return;
   if (shape.closed) {
     const b = shape.pts.reduce((m, p) => Math.max(m, Math.hypot(p[0] - shape.pivot[0], p[1] - shape.pivot[1])), 0);
