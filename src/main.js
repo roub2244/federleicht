@@ -36,6 +36,7 @@ import { openOptions, closeOptions, optionsOpen } from './optionspopup.js';
 import { setupAreaPick } from './areapick.js';
 import { setupRuler } from './ruler.js';
 import * as lock from './lock.js';
+import { isDark, onPrefsChange } from './theme.js';
 import { PANE, SESSION_KEY, setupPane, send as paneSend, otherNote, otherSide, enterSplit, leaveSplit } from './splitpane.js';
 import { setupAssist } from './assist.js';
 import { convertHandwriting } from './convert.js';
@@ -1438,14 +1439,13 @@ input.setStickyEraser(tools.tool === 'eraser');
 
 // ---------- Seiten: Vorlagen, Hinzufügen, Übersicht ----------
 // Dunkles Blatt: nur wenn das Tablet im Dunkelmodus ist UND der Schalter an ist
-const prefersDark = matchMedia('(prefers-color-scheme: dark)');
 let darkPaperSetting = readSetting('darkPaper', 'on') === 'on';
 mediaSettings.darkPdf = readSetting('darkPdf', 'off') === 'on';
 
 function applyTheme() {
   textEditor.themeChanged();
   renderer.readColors();
-  renderer.darkPaper = prefersDark.matches && darkPaperSetting;
+  renderer.darkPaper = isDark() && darkPaperSetting;
   document.documentElement.classList.toggle('dark-paper', renderer.darkPaper);
   renderer.requestRender();
   pages?.refresh();
@@ -1981,7 +1981,10 @@ new ResizeObserver(() => {
 }).observe(stage);
 
 // Hell-/Dunkelmodus gewechselt -> Farben neu lesen, Blatt hell oder dunkel
-prefersDark.addEventListener('change', applyTheme);
+// Hell/Dunkel: Tablet gewechselt oder in den Einstellungen umgestellt (siehe theme.js)
+onPrefsChange((key) => {
+  if (key === 'theme' || key === 'all') applyTheme();
+});
 applyTheme();
 
 // ---------- Knöpfe oben ----------

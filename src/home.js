@@ -21,6 +21,8 @@ import { paint } from './paint.js';
 import { drawThumbnail, DEFAULT_TEMPLATE } from './templates.js';
 import { FOLDER_COLORS, badge, folderDialog, parentOf, descendants, pathOf, childrenOf, flatTree, guessIcon } from './folders.js';
 import { setupToday } from './today.js';
+import { openSettings } from './settings.js';
+import { getPrefs, onPrefsChange } from './theme.js';
 import { collectHomework } from './homework.js';
 import * as lock from './lock.js';
 import { needsIndex, indexNote, queryWords, searchNote, matchText, norm } from './searchindex.js';
@@ -38,6 +40,7 @@ const SORTS = [
 ];
 
 const ICON = {
+  gear: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 3v2.2M12 18.8V21M3 12h2.2M18.8 12H21M5.6 5.6l1.6 1.6M16.8 16.8l1.6 1.6M5.6 18.4l1.6-1.6M16.8 7.2l1.6-1.6"/></svg>',
   notes: '<svg viewBox="0 0 24 24"><rect x="5" y="3" width="14" height="18" rx="2.5"/><path d="M9 8h6M9 12h6M9 16h3"/></svg>',
   star: '<svg viewBox="0 0 24 24"><path d="m12 3.5 2.6 5.3 5.9.9-4.3 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z"/></svg>',
   trash: '<svg viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>',
@@ -82,6 +85,10 @@ export function setupHome(api) {
     saveJSON('todayIntro', true);
     saveJSON('homeFilter', filter);
   }
+  // Einstellung "Beim Öffnen" (siehe settings.js)
+  const startPref = getPrefs().start;
+  if (startPref === 'today') filter = { kind: 'today' };
+  else if (startPref === 'all' && filter.kind === 'today') filter = { kind: 'all' };
   let sort = readJSON('homeSort', 'updated');
   let search = '';
   let drawerOpen = false;
@@ -101,6 +108,11 @@ export function setupHome(api) {
     },
     saveNoteMeta: (note) => store.putNote(note),
     refresh: () => render(),
+    openSettings: () => showSettings(),
+  });
+  const showSettings = () => openSettings({ onChange: () => !root.hidden && render() });
+  onPrefsChange(() => {
+    if (!root.hidden) render();
   });
 
   // Gesperrt? (Notiz selbst oder ein Ordner darüber) – und gerade nicht entsperrt
@@ -117,6 +129,7 @@ export function setupHome(api) {
       <div class="h-brand"><img src="./icons/icon.svg" alt="" width="30" height="30" /><span>Federleicht</span></div>
       <nav class="h-nav"></nav>
       <div class="h-side-foot">
+        <button class="h-link" data-act="settings">${ICON.gear}<span>Einstellungen</span></button>
         <button class="h-link" data-act="backup">${ICON.backup}<span>Sicherung</span></button>
         <button class="h-link" data-act="pin">${ICON.key}<span>PIN und Sperre</span></button>
       </div>
@@ -421,6 +434,7 @@ export function setupHome(api) {
     if (act === 'import-pdf') return pdfInput.click();
     if (act === 'new-folder') return newFolder();
     if (act === 'sort') return openSortMenu(t.closest('button'));
+    if (act === 'settings') return showSettings();
     if (act === 'backup') return openBackupMenu(t.closest('button'));
     if (act === 'pin') return openPinMenu(t.closest('button'));
     if (act === 'lock') {
