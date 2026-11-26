@@ -82,6 +82,7 @@ export function isButtonHeldWhileHovering(e) {
 export function setupInput(canvas, app) {
   let rect = canvas.getBoundingClientRect();
   let penMode = 'none';      // 'draw' | 'erase' | 'none'
+  let rawDrawnUntil = -Infinity; // bis zu welchem Zeitpunkt Stiftpunkte schon gezeichnet sind (pointerrawupdate)
   let eraserShown = false;   // wird gerade der Radierer-Kreis angezeigt?
   let lastPenTime = -Infinity;
   const touches = new Map(); // aktive Finger: pointerId -> [x, y]
@@ -302,21 +303,20 @@ export function setupInput(canvas, app) {
       if (e.type === 'pointermove' || e.type === 'pointerup') {
         let events = e.getCoalescedEvents ? e.getCoalescedEvents() : [];
         if (events.length === 0) events = [e];
-        const points = events.map(pagePoint);
 
         if (penMode === 'draw') {
-          // getPredictedEvents(): Der Browser schätzt, wo der Stift gleich sein wird.
-          // Diese Punkte zeigen wir nur kurz an, damit sich die Linie schneller anfühlt.
-          const predicted = wanted === 'draw' && e.getPredictedEvents ? e.getPredictedEvents().map(pagePoint) : [];
-          app.extendStroke(points, predicted);
+          // Punkte, die schon über pointerrawupdate gezeichnet wurden (siehe unten), nicht doppelt nehmen
+          events = events.filter((ev) => ev.timeStamp > rawDrawnUntil);
+          if (events.length) app.extendStroke(events.map(pagePoint));
         } else if (penMode === 'erase' && wanted === 'erase') {
-          app.eraseAlong(points);
+          app.eraseAlong(events.map(pagePoint));
         }
       }
     }
 
     // 2. Hat sich der Modus geändert? (aufgesetzt, abgehoben, Knopf gedrückt)
     if (wanted !== penMode && (touching || ended || contacts.size === 0)) {
+      if (wanted === 'draw') rawDrawnUntil = e.timeStamp;
       if (penMode === 'draw') app.endStroke();
       if (penMode === 'erase') app.endErase();
       if (wanted === 'draw') app.startStroke(pagePoint(e), e.pointerType);
@@ -524,6 +524,27 @@ export function setupInput(canvas, app) {
 
   for (const type of ['pointerdown', 'pointermove', 'pointerup', 'pointercancel']) {
     canvas.addEventListener(type, onPointerEvent);
+  }
+
+  // ---------- Schneller zeichnen: pointerrawupdate ----------
+  // "pointermove" kommt höchstens einmal pro Bildschirm-Bild (der Browser sammelt die
+  // Stiftpunkte und wartet auf den nächsten Takt). "pointerrawupdate" kommt dagegen sofort,
+  // sobald der Stift einen neuen Punkt misst. Zusammen mit dem Low-Latency-Canvas
+  // (renderer.js) ist die Linie so schneller unter der Stiftspitze – wie in Samsung Notes.
+  // Alles andere (Aufsetzen, Abheben, Knopf, Handballen) bleibt bei pointermove.
+  // Die Punkte, die wir hier schon zeichnen, lässt pointermove danach weg (rawDrawnUntil).
+  if ('onpointerrawupdate' in window) {
+    canvas.addEventListener('pointerrawupdate', (e) => {
+      if (e.pointerType !== 'pen' || penMode !== 'draw' || !contacts.has(e.pointerId)) return;
+      let events = e.getCoalescedEvents ? e.getCoalescedEvents() : [];
+      if (events.length === 0) events = [e];
+      events = events.filter((ev) => ev.timeStamp > rawDrawnUntil);
+      if (!events.length) return;
+      rawDrawnUntil = events[events.length - 1].timeStamp;
+      lastPenTime = e.timeStamp;
+      lastContactTime = e.timeStamp;
+      app.extendStroke(events.map(pagePoint));
+    });
   }
 
   // Das System hat uns den Stift "weggenommen" (z. B. für eine Samsung-Funktion)
