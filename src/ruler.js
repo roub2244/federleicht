@@ -16,6 +16,7 @@
 // ein eigenes durchsichtiges Canvas über der Seite gemalt.
 
 import { MM } from './templates.js';
+import { isDark } from './theme.js';
 
 const SNAP_PX = 26;         // so nah (Bildschirm-Pixel) an einer Kante rastet der Stift ein
 const ANGLE_SNAP = 15;      // auf Vielfache davon (Grad) rastet das Drehen ein ...
@@ -197,7 +198,7 @@ export function setupRuler({ stage, view, onChange }) {
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     if (!on) return;
-    const dark = matchMedia('(prefers-color-scheme: dark)').matches;
+    const dark = isDark();
     const k = view.scale;
     const [sx, sy] = view.toScreen(state.x, state.y);
     ctx.setTransform(dpr * k, 0, 0, dpr * k, sx * dpr, sy * dpr);

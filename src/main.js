@@ -36,6 +36,8 @@ import { openOptions, closeOptions, optionsOpen } from './optionspopup.js';
 import { setupAreaPick } from './areapick.js';
 import { setupRuler } from './ruler.js';
 import * as lock from './lock.js';
+import { isDark, onPrefsChange } from './theme.js';
+import { PANE, SESSION_KEY, setupPane, send as paneSend, otherNote, otherSide, enterSplit, leaveSplit } from './splitpane.js';
 import { setupAssist } from './assist.js';
 import { convertHandwriting } from './convert.js';
 import { setupAudio } from './audio.js';
@@ -400,6 +402,24 @@ const app = {
     const hit = textEditor.hitTest(page, point[0], y, 10 / view.scale);
     if (hit) textEditor.open(page, hit, { at: client });
     else textEditor.create(page, point[0], y, nextZ++);
+  },
+  // Text-Werkzeug auf ein fertiges Textfeld gesetzt -> anfassen (ziehen = verschieben)
+  textPress(point) {
+    if (textEditor.active || tools.tool !== 'text') return false;
+    const index = doc.indexAt(point[1]);
+    const page = doc.pages[index];
+    const y = point[1] - doc.top(index);
+    const hit = page && textEditor.hitTest(page, point[0], y, 10 / view.scale);
+    if (!hit) return false;
+    textEditor.grabStart(page, hit, [point[0], y]);
+    return true;
+  },
+  textGrabMove(point) {
+    const index = doc.indexAt(point[1]);
+    textEditor.grabMove([point[0], point[1] - doc.top(index)]);
+  },
+  textGrabEnd(moved) {
+    return textEditor.grabEnd(moved);
   },
   // Mit dem Text-Werkzeug gezogen: Textfeld von a bis b (so breit wie gezogen)
   textDrag(a, b) {
@@ -1093,6 +1113,9 @@ lasso = setupLasso({
   toast,
   onEditImage: editImage,
   onConvert: (page, items) => convertInk(page, items),
+  // Splitscreen: Auswahl an den Rand zur anderen Notiz ziehen = dort einfügen (siehe split.js)
+  transferSide: otherSide,
+  onTransfer: transferToOther,
 });
 
 
@@ -1434,14 +1457,13 @@ input.setStickyEraser(tools.tool === 'eraser');
 
 // ---------- Seiten: Vorlagen, Hinzufügen, Übersicht ----------
 // Dunkles Blatt: nur wenn das Tablet im Dunkelmodus ist UND der Schalter an ist
-const prefersDark = matchMedia('(prefers-color-scheme: dark)');
 let darkPaperSetting = readSetting('darkPaper', 'on') === 'on';
 mediaSettings.darkPdf = readSetting('darkPdf', 'off') === 'on';
 
 function applyTheme() {
   textEditor.themeChanged();
   renderer.readColors();
-  renderer.darkPaper = prefersDark.matches && darkPaperSetting;
+  renderer.darkPaper = isDark() && darkPaperSetting;
   document.documentElement.classList.toggle('dark-paper', renderer.darkPaper);
   renderer.requestRender();
   pages?.refresh();
@@ -1977,7 +1999,10 @@ new ResizeObserver(() => {
 }).observe(stage);
 
 // Hell-/Dunkelmodus gewechselt -> Farben neu lesen, Blatt hell oder dunkel
-prefersDark.addEventListener('change', applyTheme);
+// Hell/Dunkel: Tablet gewechselt oder in den Einstellungen umgestellt (siehe theme.js)
+onPrefsChange((key) => {
+  if (key === 'theme' || key === 'all') applyTheme();
+});
 applyTheme();
 
 // ---------- Knöpfe oben ----------
@@ -2193,7 +2218,7 @@ function restoreView(v) {
 function saveSession() {
   clearTimeout(sessionTimer);
   sessionTimer = 0;
-  saveJSON('session', note ? { screen: 'note', noteId: note.id, view: captureView(), at: Date.now() } : { screen: 'home' });
+  saveJSON(SESSION_KEY, note ? { screen: 'note', noteId: note.id, view: captureView(), at: Date.now() } : { screen: 'home' });
 }
 
 function scheduleSession() {
@@ -2221,6 +2246,11 @@ function showTitle() {
 async function openNote(id, savedView = null, focus = null) {
   const meta = await store.getNote(id);
   if (!meta || meta.deletedAt) return false;
+  // Splitscreen: dieselbe Notiz zweimal offen würde sich gegenseitig überschreiben
+  if (PANE && id === otherNote()) {
+    toast('Diese Notiz ist schon auf der anderen Seite offen');
+    return false;
+  }
   // Gesperrte Notiz (oder in gesperrtem Ordner): erst PIN (siehe lock.js)
   if (lock.isNoteLocked(meta, await store.getAllFolders()) && !(await lock.unlock('Notiz gesperrt'))) return false;
   await leaveNote();
@@ -2264,6 +2294,7 @@ async function openNote(id, savedView = null, focus = null) {
   pagesChanged();
   renderer.renderNow();
   saveSession();
+  paneSend({ act: 'note', id: note.id });
   if (noteDirty || thumbDirty) saveNow({ thumbs: true });
   if (focus) flashFound(focus);
   return true;
@@ -2332,6 +2363,7 @@ async function leaveNote() {
   }
   note = null;
   history.clear();
+  paneSend({ act: 'note', id: null });
 }
 
 async function goHome() {
@@ -2365,16 +2397,91 @@ titleButton.addEventListener('click', async () => {
   markDirty([], true);
 });
 
+// ---------- Splitscreen: zwei Notizen nebeneinander (siehe split.js, splitpane.js) ----------
+const splitButton = document.getElementById('btn-split');
+const SPLIT_ICON = '<svg viewBox="0 0 24 24"><rect x="3" y="4.5" width="18" height="15" rx="2.5"/><path d="M12 4.5v15"/></svg>';
+if (PANE) {
+  splitButton.classList.add('on');
+  splitButton.title = 'Splitscreen beenden (diese Notiz bleibt offen)';
+  splitButton.setAttribute('aria-label', 'Splitscreen beenden');
+}
+
+async function toggleSplit() {
+  if (PANE) return leaveSplit();
+  closeAllPopups();
+  // Erst alles sichern, dann die Seite als Splitscreen neu laden
+  textEditor.finish();
+  if (current) app.endStroke();
+  saveSession();
+  if (note) await saveNow({ thumbs: thumbDirty });
+  enterSplit(note ? { screen: 'note', noteId: note.id, view: captureView(), at: Date.now() } : { screen: 'home' });
+}
+splitButton.addEventListener('click', toggleSplit);
+
+moreEntries.push({
+  group: 'Ansicht',
+  row: () => ({
+    tool: 'split',
+    icon: SPLIT_ICON,
+    label: PANE ? 'Splitscreen beenden' : 'Zwei Notizen nebeneinander',
+    hint: PANE ? 'Diese Notiz bleibt offen, die andere wird gespeichert' : 'Links diese Notiz, rechts eine zweite – Trennlinie verschiebbar',
+    on: Boolean(PANE),
+    run: toggleSplit,
+  }),
+});
+
+// Mit dem Lasso Ausgewähltes in die andere Notiz kopieren (client = Fensterpunkt, an dem losgelassen wurde)
+function transferToOther(items, frame, client) {
+  if (!PANE || !items.length) return false;
+  if (!otherNote()) {
+    toast('Auf der anderen Seite erst eine Notiz öffnen');
+    return false;
+  }
+  paneSend({ act: 'transfer', items: items.map(store.packStroke), frame, x: client?.[0], y: client?.[1] });
+  toast(items.length === 1 ? 'In die andere Notiz kopiert' : `${items.length} Elemente in die andere Notiz kopiert`);
+  return true;
+}
+
+setupPane({
+  async flush({ leave }) {
+    if (leave) {
+      await leaveNote();
+      return;
+    }
+    textEditor.finish();
+    if (current) app.endStroke();
+    saveSession();
+    if (note) await saveNow({ thumbs: thumbDirty });
+  },
+  receive({ items, frame, x, y }) {
+    if (!note) {
+      toast('Erst eine Notiz öffnen, dann hierher ziehen');
+      return;
+    }
+    const strokes = (items || []).map(store.unpackStroke);
+    if (!strokes.length) return;
+    let at = null;
+    const r = stage.getBoundingClientRect();
+    if (Number.isFinite(x) && Number.isFinite(y) && x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) {
+      at = view.toPage(x - r.left, y - r.top);
+    }
+    closeAllPopups();
+    lasso.dropIn(strokes, frame, at);
+    toast('Eingefügt');
+  },
+});
+
 // ---------- Start ----------
 // Erst wenn die Zeichenfläche ihre Größe kennt, die letzte Sitzung wiederherstellen
 async function boot() {
   await firstSize;
-  const session = loadJSON('session', {});
+  const session = loadJSON(SESSION_KEY, {});
   let opened = false;
   try {
     await store.openDB();
     // Dateien (Bilder/PDFs) wegräumen, die keine Notiz mehr braucht
-    await store.cleanupBlobs().catch((err) => console.warn('Aufräumen ging nicht', err));
+    // (im Splitscreen nicht: das andere Fenster hat vielleicht ein neues Bild, das noch nicht gespeichert ist)
+    if (!PANE) await store.cleanupBlobs().catch((err) => console.warn('Aufräumen ging nicht', err));
     if (session.screen === 'note' && session.noteId) opened = await openNote(session.noteId, session.view);
     if (!opened) await home.show();
   } catch (err) {
@@ -2387,7 +2494,7 @@ boot();
 
 // ---------- Offline-Fähigkeit ----------
 // Den Service Worker nur in der fertigen Version anmelden (nicht beim Entwickeln)
-if ('serviceWorker' in navigator && import.meta.env.PROD) {
+if ('serviceWorker' in navigator && import.meta.env.PROD && !PANE) {
   navigator.serviceWorker.register('./sw.js').catch((err) => console.warn('Kein Service Worker:', err));
 }
 

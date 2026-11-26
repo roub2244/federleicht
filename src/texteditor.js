@@ -5,7 +5,11 @@
 //   - Auf ein vorhandenes Textfeld tippen -> es wird bearbeitet (Cursor an der Stelle)
 //   - Oben erscheint die Format-Leiste: Schriftart, Größe, fett, kursiv, unterstrichen,
 //     durchgestrichen, Farbe, Hintergrund, Ausrichtung, Listen
-//   - Griff links oben = Textfeld verschieben, Griff rechts = breiter/schmaler machen
+//   - Griff links oben oder Rand anfassen = Textfeld verschieben, Griff rechts = breiter/schmaler,
+//     Ecke rechts unten = breiter und höher ziehen, Dreieck oben = Einzug der ersten Zeile
+//   - Mit dem Text-Werkzeug ein fertiges Textfeld anfassen und ziehen = verschieben
+//   - Direkt hinter Handschrift tippen = dort weiterschreiben: Das Textfeld beginnt am Zeilenanfang,
+//     die erste Zeile aber erst hinter der Handschrift (L-Form, siehe text.js "ind")
 //   - Daneben tippen oder "Fertig" -> Text wird auf die Seite gemalt
 //
 // Zum Tippen benutzen wir ein echtes Eingabefeld des Browsers (contenteditable).
@@ -16,8 +20,9 @@
 import { pageDark } from './media.js';
 import {
   FONTS, FONT_GROUPS, fontCss, PT, SIZES_PT, LINE_HEIGHT, LIST_INDENT, MIN_WIDTH, DEFAULT_STYLE,
-  createTextItem, updateTextBox, isEmptyText, textHit, textHighlight,
+  createTextItem, updateTextBox, isEmptyText, textHit, textHighlight, layoutText, drawText, firstLineHeight,
 } from './text.js';
+import { paperLines } from './templates.js';
 import { displayColor, setInkTheme } from './ink.js';
 import { COLOR_PAGES, HIGHLIGHTER_COLORS, saveTools, rememberColor } from './tools.js';
 import { PAGE_WIDTH, PAGE_HEIGHT } from './view.js';
@@ -67,7 +72,8 @@ export function setupTextEditor({ stage, view, doc, renderer, tools, onCommit, o
   const bar = document.getElementById('textbar');
   const pop = document.getElementById('textbar-pop');
 
-  let session = null; // { page, item, isNew, x, y, w, wrap, edit }
+  let session = null; // { page, item, isNew, x, y, w, ind, h, wrap, edit }
+  let grab = null;    // Textfeld wird mit dem Text-Werkzeug verschoben (siehe grabStart)
   let mathTab = 0;     // Mathe-Schreibmenü: gewählte Gruppe
   let mathMode = null; // 'sup' | 'sub' | null: getippte Zeichen hoch-/tiefstellen
   let pendingSize = null; // Größe, die beim nächsten Tippen gelten soll (Cursor ohne Auswahl)
@@ -334,13 +340,16 @@ export function setupTextEditor({ stage, view, doc, renderer, tools, onCommit, o
     const wrap = document.createElement('div');
     wrap.className = 'tbox';
     wrap.innerHTML = `
-      <div class="tbox-frame"></div>
+      <svg class="tbox-frame"><path/></svg>
+      <div class="tbox-edge" data-e="t"></div><div class="tbox-edge" data-e="b"></div><div class="tbox-edge" data-e="l"></div>
       <div class="tbox-edit" contenteditable="true" spellcheck="true" autocapitalize="sentences" lang="de"></div>
       <button class="tbox-move" aria-label="Verschieben">${ICON.move}</button>
-      <button class="tbox-size" aria-label="Breite ändern"><i></i></button>`;
+      <button class="tbox-size" aria-label="Breite ändern"><i></i></button>
+      <button class="tbox-corner" aria-label="Größer ziehen"><i></i></button>
+      <button class="tbox-ind" aria-label="Einzug der ersten Zeile"><i></i></button>`;
     stage.appendChild(wrap);
     const edit = wrap.querySelector('.tbox-edit');
-    session = { page, item, isNew, x: item.x, y: item.y, w: item.w, wrap, edit };
+    session = { page, item, isNew, x: item.x, y: item.y, w: item.w, ind: item.ind || 0, h: item.h || 0, wrap, edit };
     pendingSize = null;
     colorBack.clear();
     highlightBack.clear();
@@ -352,6 +361,7 @@ export function setupTextEditor({ stage, view, doc, renderer, tools, onCommit, o
     edit.style.lineHeight = String(LINE_HEIGHT);
     edit.style.color = showColor('#000000');
     edit.style.setProperty('--indent', `${LIST_INDENT * base}px`);
+    session.firstH = firstLineHeight(item);
     edit.innerHTML = toHTML(item);
 
     new ResizeObserver(() => place()).observe(edit);
@@ -451,13 +461,30 @@ export function setupTextEditor({ stage, view, doc, renderer, tools, onCommit, o
     if (index < 0) return commit();
     const s = view.scale;
     const [left, top] = view.toScreen(session.x, doc.top(index) + session.y);
+    const ind = Math.max(0, Math.min(session.ind, session.w - 20));
     edit.style.width = `${session.w}px`;
+    edit.style.minHeight = session.h ? `${session.h}px` : '';
+    edit.style.setProperty('--ind', `${ind}px`);
     edit.style.transform = `scale(${s})`;
     wrap.style.left = `${left}px`;
     wrap.style.top = `${top}px`;
-    wrap.style.width = `${session.w * s}px`;
-    wrap.style.height = `${edit.offsetHeight * s}px`;
+    const W = session.w * s;
+    const H = edit.offsetHeight * s;
+    wrap.style.width = `${W}px`;
+    wrap.style.height = `${H}px`;
     wrap.style.setProperty('--s', s);
+    wrap.style.setProperty('--ind', `${ind * s}px`);
+    wrap.classList.toggle('has-ind', ind > 0);
+    // Rahmen: Rechteck oder L-Form (vor der ersten Zeile steht Handschrift)
+    const px = 10;
+    const py = 8;
+    const xi = ind * s - 4;
+    const yn = Math.min(H, (session.firstH || 0) * s) + 2;
+    const d =
+      ind > 0
+        ? `M${xi},${-py} H${W + px} V${H + py} H${-px} V${yn} H${xi} Z`
+        : `M${-px},${-py} H${W + px} V${H + py} H${-px} Z`;
+    wrap.querySelector('.tbox-frame path').setAttribute('d', d);
   }
 
   // ---------- Verschieben und Breite ändern ----------
@@ -467,7 +494,7 @@ export function setupTextEditor({ stage, view, doc, renderer, tools, onCommit, o
         e.preventDefault();
         e.stopPropagation();
         handle.setPointerCapture(e.pointerId);
-        const start = { x: e.clientX, y: e.clientY, sx: session.x, sy: session.y, sw: session.w };
+        const start = { x: e.clientX, y: e.clientY, sx: session.x, sy: session.y, sw: session.w, si: session.ind, sh: session.h || naturalHeight() };
         const move = (ev) => {
           if (!session) return;
           onMove((ev.clientX - start.x) / view.scale, (ev.clientY - start.y) / view.scale, start);
@@ -484,19 +511,91 @@ export function setupTextEditor({ stage, view, doc, renderer, tools, onCommit, o
         handle.addEventListener('pointercancel', up);
       });
     };
-    drag(wrap.querySelector('.tbox-move'), (dx, dy, st) => {
+    const move = (dx, dy, st) => {
       session.x = Math.max(-session.w + 40, Math.min(PAGE_WIDTH - 40, st.sx + dx));
       session.y = Math.max(0, Math.min(PAGE_HEIGHT - 20, st.sy + dy));
-    });
+    };
+    drag(wrap.querySelector('.tbox-move'), move);
+    for (const edge of wrap.querySelectorAll('.tbox-edge')) drag(edge, move);
     drag(wrap.querySelector('.tbox-size'), (dx, dy, st) => {
       session.w = Math.max(MIN_WIDTH, Math.min(PAGE_WIDTH - session.x, st.sw + dx));
     });
+    // Ecke: breiter UND höher (die Höhe bleibt dann mindestens so, auch wenn wenig Text drin ist)
+    drag(wrap.querySelector('.tbox-corner'), (dx, dy, st) => {
+      session.w = Math.max(MIN_WIDTH, Math.min(PAGE_WIDTH - session.x, st.sw + dx));
+      const natural = naturalHeight();
+      const want = st.sh + dy;
+      session.h = want > natural + 4 ? Math.min(PAGE_HEIGHT - session.y, want) : 0;
+    });
+    // Dreieck oben: wo die erste Zeile anfängt (ganz nach links = kein Einzug)
+    drag(wrap.querySelector('.tbox-ind'), (dx, dy, st) => {
+      const v = st.si + dx;
+      session.ind = v < 12 ? 0 : Math.min(session.w - MIN_WIDTH / 2, v);
+    });
+  }
+
+  // Wie hoch wäre das Feld nur mit dem Text? (ohne gezogene Mindesthöhe)
+  function naturalHeight() {
+    if (!session) return 0;
+    const { edit } = session;
+    const old = edit.style.minHeight;
+    edit.style.minHeight = '';
+    const h = edit.offsetHeight;
+    edit.style.minHeight = old;
+    return h;
+  }
+
+  // Tippen direkt hinter Handschrift: Gibt es links davon auf derselben Zeile Geschriebenes?
+  // -> { x (Zeilenanfang), ind (Einzug der ersten Zeile), w, baseline }
+  function continuation(page, x, y, size) {
+    const lines = paperLines(page.template);
+    let top;
+    let bottom;
+    let baseline = null;
+    if (lines && lines.kind === 'lines') {
+      // Liniertes Papier: die Zeile, in die getippt wurde (Linie darunter = Schreiblinie)
+      const n = Math.ceil((y - lines.y0) / lines.step);
+      baseline = lines.y0 + n * lines.step;
+      top = baseline - lines.step;
+      bottom = baseline + lines.step * 0.25;
+    } else {
+      const span = Math.max(size * 1.6, lines?.step ? lines.step * 1.2 : 0, 34);
+      top = y - span * 0.8;
+      bottom = y + span * 0.45;
+    }
+    const ink = page.strokes.filter((st) => {
+      if (st.tool === 'text' || st.tool === 'image' || st.tool === 'fill' || st.hidden || !st.box) return false;
+      const b = st.box;
+      const cy = (b.minY + b.maxY) / 2;
+      return cy >= top && cy <= bottom && b.maxY - b.minY < (bottom - top) * 2.2;
+    });
+    const left = ink.filter((st) => st.box.minX < x);
+    if (!left.length) return null;
+    const end = Math.max(...left.map((st) => st.box.maxX));
+    // nur, wenn die Handschrift wirklich bis kurz vor die getippte Stelle geht
+    if (end > x + 6 || x - end > 220) return null;
+    // Rechts von der Stelle schon etwas auf der Zeile? Dann lieber ein normales Textfeld
+    if (ink.some((st) => st.box.minX > x + 4)) return null;
+    // Zeilenanfang = linkes Ende der zusammenhängenden Schrift (Lücken über 160 trennen)
+    const sorted = left.map((st) => st.box).sort((a, b) => b.maxX - a.maxX);
+    let start = sorted[0].minX;
+    for (const b of sorted) if (b.maxX > start - 160) start = Math.min(start, b.minX);
+    if (baseline == null) {
+      const bottoms = left.map((st) => st.box.maxY).sort((a, b) => a - b);
+      const heights = left.map((st) => st.box.maxY - st.box.minY).sort((a, b) => a - b);
+      baseline = bottoms[Math.floor(bottoms.length / 2)] - heights[Math.floor(heights.length / 2)] * 0.08;
+    }
+    const bx = Math.max(6, start);
+    const ind = Math.max(end + 8, x) - bx;
+    const w = Math.max(ind + MIN_WIDTH, PAGE_WIDTH - 30 - bx);
+    if (ind > w - MIN_WIDTH / 2) return null; // Zeile ist schon voll
+    return { x: bx, ind, w, baseline: baseline - 2 };
   }
 
   // Fertig: Eingabefeld auslesen und als Textfeld auf die Seite legen
   function commit({ remove = false } = {}) {
     if (!session) return;
-    const { page, item, isNew, wrap, edit, x, y, w } = session;
+    const { page, item, isNew, wrap, edit, x, y, w, ind, h } = session;
     useInk();
     const paras = remove ? [] : readParas(edit);
     session = null;
@@ -508,10 +607,12 @@ export function setupTextEditor({ stage, view, doc, renderer, tools, onCommit, o
     delete item.editing;
     onEditingChange(false);
 
-    const next = updateTextBox({ ...item, x, y, w, paras: paras.length ? paras : item.paras.slice(0, 1), box: null });
+    const next = updateTextBox({ ...item, x, y, w, ind: ind > 0 ? ind : undefined, h: h > 0 ? h : undefined, paras: paras.length ? paras : item.paras.slice(0, 1), box: null });
     delete next.editing;
+    if (!next.ind) delete next.ind;
+    if (!next.h) delete next.h;
     const empty = remove || paras.length === 0 || isEmptyText(next);
-    const changed = isNew || JSON.stringify([x, y, w, paras]) !== JSON.stringify([item.x, item.y, item.w, item.paras]);
+    const changed = isNew || JSON.stringify([x, y, w, ind || 0, h || 0, paras]) !== JSON.stringify([item.x, item.y, item.w, item.ind || 0, item.h || 0, item.paras]);
     if (empty) onCommit(page, isNew ? null : item, null);
     else if (changed) onCommit(page, isNew ? null : item, next);
     renderer.requestRender();
@@ -533,6 +634,17 @@ export function setupTextEditor({ stage, view, doc, renderer, tools, onCommit, o
     create(page, x, y, z, width = 0, topAligned = false) {
       const style = { ...tools.text };
       const size = style.s || DEFAULT_STYLE.s;
+      // Direkt hinter Handschrift getippt? Dann dort weiterschreiben (L-förmiges Textfeld)
+      const cont = !width && !topAligned ? continuation(page, x, y, size) : null;
+      if (cont) {
+        const item = createTextItem({ x: cont.x, y: 0, w: cont.w, z, style });
+        item.ind = cont.ind;
+        updateTextBox(item);
+        item.y = Math.max(0, cont.baseline - layoutText(item).lines[0].baseline);
+        updateTextBox(item);
+        open(page, item, { isNew: true });
+        return;
+      }
       let w = width ? Math.max(MIN_WIDTH, width) : Math.min(520, PAGE_WIDTH - x - 30);
       if (!width && w < 200) {
         w = 200;
@@ -542,6 +654,59 @@ export function setupTextEditor({ stage, view, doc, renderer, tools, onCommit, o
       const top = topAligned ? y : y - size * 0.75;
       const item = createTextItem({ x, y: Math.max(0, top), w, z, style });
       open(page, item, { isNew: true });
+    },
+    // Mit dem Text-Werkzeug ein Textfeld anfassen und ziehen = verschieben (ohne Tastatur)
+    grabStart(page, item, point) {
+      grab = { page, item, start: point, dx: 0, dy: 0 };
+    },
+    grabMove(point) {
+      if (!grab) return;
+      grab.dx = point[0] - grab.start[0];
+      grab.dy = point[1] - grab.start[1];
+      if (!grab.item.hidden) {
+        grab.item.hidden = true;
+        renderer.renderNow();
+      }
+      const { item, page, dx, dy } = grab;
+      const index = doc.pages.indexOf(page);
+      const [ax, ay] = view.toScreen(item.box.minX + dx, doc.top(index) + item.box.minY + dy);
+      const [bx, by] = view.toScreen(item.box.maxX + dx, doc.top(index) + item.box.maxY + dy);
+      renderer.setOverlay({
+        box: { minX: ax - 14, minY: ay - 14, maxX: bx + 14, maxY: by + 14 },
+        draw(ctx, rend) {
+          rend.applyView(ctx);
+          ctx.translate(dx, doc.top(index) + dy);
+          rend.useInkOf?.(index);
+          const shown = { ...item };
+          delete shown.hidden;
+          drawText(ctx, shown);
+          ctx.setTransform(1, 0, 0, 1, 0, 0);
+          ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--accent') || '#4a6cf7';
+          ctx.setLineDash([6, 5]);
+          ctx.lineWidth = 1.5 * (rend.dpr || 1);
+          const k = rend.dpr || 1;
+          ctx.strokeRect((ax - 8) * k, (ay - 6) * k, (bx - ax + 16) * k, (by - ay + 12) * k);
+        },
+      });
+    },
+    // Ergebnis: true = verschoben, false = nur angetippt (dann bearbeiten)
+    grabEnd(moved) {
+      if (!grab) return false;
+      const { item, page, dx, dy } = grab;
+      grab = null;
+      const was = Boolean(item.hidden);
+      delete item.hidden;
+      renderer.setOverlay(null);
+      if (!moved || !was) {
+        renderer.renderNow();
+        return false;
+      }
+      const nx = Math.max(-item.w + 40, Math.min(PAGE_WIDTH - 40, item.x + dx));
+      const ny = Math.max(0, Math.min(PAGE_HEIGHT - 20, item.y + dy));
+      const next = updateTextBox({ ...item, x: nx, y: ny, box: null });
+      onCommit(page, item, next);
+      renderer.renderNow();
+      return true;
     },
     // Liegt an dieser Stelle (Seiten-Koordinaten) ein Textfeld? Das oberste zurückgeben.
     hitTest(page, x, y, pad) {

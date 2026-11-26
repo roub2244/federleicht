@@ -182,10 +182,25 @@ export function setupInput(canvas, app) {
     if (e.type === 'pointerdown') {
       capture(e.pointerId);
       textDown = { id: e.pointerId, x: e.clientX, y: e.clientY, point: pagePoint(e) };
+      // Auf ein fertiges Textfeld gesetzt? Dann kann man es gleich wegziehen (siehe texteditor.js)
+      textDown.grab = app.textPress?.(textDown.point) || false;
+    } else if (e.type === 'pointermove' && textDown?.id === e.pointerId && textDown.grab) {
+      if (Math.hypot(e.clientX - textDown.x, e.clientY - textDown.y) >= TAP_MOVE || textDown.dragging) {
+        textDown.dragging = true;
+        app.textGrabMove(pagePoint(e));
+      }
     } else if ((e.type === 'pointerup' || e.type === 'pointercancel') && textDown?.id === e.pointerId) {
       const moved = Math.hypot(e.clientX - textDown.x, e.clientY - textDown.y);
       const start = textDown.point;
+      const grabbed = textDown.grab;
+      const dragging = textDown.dragging;
       textDown = null;
+      if (grabbed) {
+        const done = app.textGrabEnd(e.type === 'pointerup' && dragging);
+        if (done || e.type !== 'pointerup') return 'Text';
+        app.textTap(pagePoint(e), [e.clientX, e.clientY]);
+        return 'Text';
+      }
       if (e.type !== 'pointerup') return 'Text';
       if (moved < TAP_MOVE) app.textTap(pagePoint(e), [e.clientX, e.clientY]);
       // Quer über die Seite gezogen: Textfeld genau so breit anlegen

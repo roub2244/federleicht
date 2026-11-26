@@ -12,8 +12,9 @@
 
 const KEY = 'federleicht.timetable';
 
-// Robins Plan (Screenshot vom 26.11.2026). Die Woche 23.–27.11. war eine B-Woche,
-// in der A-Woche fällt Mittwoch 7./8. Englisch weg.
+// Robins Plan (Screenshots vom 26.11.2026, Stundenplan + EduPage). Die Woche 23.–27.11. war eine B-Woche,
+// in der A-Woche fällt Mittwoch 7./8. Englisch weg. course = Kursname wie in EduPage,
+// teachers = Kürzel -> voller Name (soweit bekannt).
 const ROBIN = {
   periods: [
     { from: '07:50', to: '08:35' },
@@ -27,17 +28,17 @@ const ROBIN = {
     { from: '15:15', to: '16:00' },
   ],
   subjects: {
-    ph: { name: 'Physik', short: 'Ph', color: '#7048e8' },
+    ph: { name: 'Physik', short: 'Ph', course: 'eA Ph', color: '#7048e8' },
     gg: { name: 'Geographie', short: 'GG', color: '#2f9e44' },
-    ma: { name: 'Mathe', short: 'M', color: '#1c7ed6' },
+    ma: { name: 'Mathe', short: 'M', course: 'eA Ma 3', color: '#1c7ed6' },
     en: { name: 'Englisch', short: 'En', color: '#e8590c' },
     eth: { name: 'Ethik', short: 'Eth', color: '#0c8599' },
     if: { name: 'Informatik', short: 'If', color: '#495057' },
     sf: { name: 'Seminarfach', short: 'Sf', color: '#ae3ec9' },
     ges: { name: 'Geschichte', short: 'Ges', color: '#c92a2a' },
     de: { name: 'Deutsch', short: 'D', color: '#d6336c' },
-    mu: { name: 'Musik', short: 'Mu', color: '#f59f00' },
-    sp: { name: 'Sport', short: 'Sp', color: '#37b24d' },
+    mu: { name: 'Musik', short: 'Mu', course: 'gA mu 1', color: '#f59f00' },
+    sp: { name: 'Sport', short: 'Sp', course: 'gA sp 3', color: '#37b24d' },
   },
   lessons: [
     { day: 1, period: 3, len: 2, subject: 'ph', room: 'B11', teacher: 'Uxa' },
@@ -63,8 +64,15 @@ const ROBIN = {
     { day: 5, period: 5, len: 2, subject: 'ph', room: 'C18', teacher: 'Uxa' },
     { day: 5, period: 7, len: 2, subject: 'sp', room: 'TH', teacher: 'Geb' },
   ],
+  teachers: {
+    Scho: 'Gerhard Schott',
+    Seb: 'Heike Sebastian',
+    Uxa: 'Wolfgang Uxa',
+    Geb: 'Max Gebhardt',
+  },
   abWeeks: true,
   anchor: { monday: '2026-11-23', week: 'B' },
+  version: 2,
 };
 
 // Andere Schreibweisen, unter denen ein Ordner zu einem Fach passt
@@ -88,11 +96,23 @@ const listeners = new Set();
 function load() {
   try {
     const saved = JSON.parse(localStorage.getItem(KEY));
-    if (saved?.lessons) return saved;
+    if (saved?.lessons) return upgrade(saved);
   } catch {
     /* nichts gespeichert */
   }
   return structuredClone(ROBIN);
+}
+
+// Ältere gespeicherte Pläne um neue Angaben ergänzen (Kursnamen, volle Lehrernamen, 9. Stunde)
+function upgrade(saved) {
+  if ((saved.version || 1) >= ROBIN.version) return saved;
+  saved.teachers = { ...ROBIN.teachers, ...(saved.teachers || {}) };
+  for (const [id, s] of Object.entries(ROBIN.subjects)) {
+    if (saved.subjects[id] && s.course && !saved.subjects[id].course) saved.subjects[id].course = s.course;
+  }
+  if (saved.periods.length < ROBIN.periods.length) saved.periods = [...saved.periods, ...ROBIN.periods.slice(saved.periods.length)];
+  saved.version = ROBIN.version;
+  return saved;
 }
 
 export function save() {
@@ -201,5 +221,28 @@ export function nextLessonDate(subjectName, from = new Date()) {
   }
   return null;
 }
+
+// Die nächsten "count" Stunden in einem Fach ab "from" (ab morgen, wenn today = false) -> [{ date, lesson }]
+export function upcomingLessons(subjectId, from = new Date(), count = 4, today = false) {
+  const out = [];
+  for (let i = today ? 0 : 1; i < 60 && out.length < count; i++) {
+    const d = new Date(from.getFullYear(), from.getMonth(), from.getDate() + i);
+    for (const l of lessonsOn(d)) if (l.subject === subjectId && out.length < count) out.push({ date: d, lesson: l });
+  }
+  return out;
+}
+
+// Lehrkraft lesbar machen: "Flu, Sei" -> "Flu, Sei" bzw. mit vollen Namen, wenn bekannt
+export function teacherName(text, full = true) {
+  if (!text || !full) return text || '';
+  const map = data.teachers || {};
+  return String(text)
+    .split(/\s*,\s*/)
+    .map((t) => map[t] || t)
+    .join(', ');
+}
+
+// "3." oder "3./4."
+export const periodLabel = (l) => (l.len > 1 ? `${l.period}./${l.period + l.len - 1}.` : `${l.period}.`);
 
 export const WEEKDAYS = ['', 'Mo', 'Di', 'Mi', 'Do', 'Fr'];

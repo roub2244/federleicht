@@ -9,6 +9,10 @@
 //     x, y   linke obere Ecke auf der Seite (Seiten-Einheiten, Seite ist 1000 breit)
 //     w      Breite – längere Zeilen werden umgebrochen
 //     base   Grundgröße (für Einrückung von Listen)
+//     ind    Einzug der ersten Zeile (optional): Das Textfeld beginnt unter/neben Handschrift –
+//            die erste Zeile fängt erst bei x + ind an ("hinter der Handschrift weiterschreiben"),
+//            alle weiteren Zeilen nutzen die ganze Breite (Textfeld in L-Form)
+//     h      Mindesthöhe (optional): Textfeld wurde größer gezogen, als der Text braucht
 //   Absatz: { a: 'left' | 'center' | 'right', l: null | 'bullet' | 'number', runs: [Stück, ...] }
 //   Stück (Text mit EINEM Aussehen):
 //     { t: 'Hallo', f: Schriftart, s: Größe, c: Farbe, b: fett, i: kursiv, u: unterstrichen, x: durchgestrichen, h: Hintergrund }
@@ -136,12 +140,17 @@ export function reviveText(d) {
     paras: paras.length ? paras : [{ a: 'left', l: null, runs: [{ ...DEFAULT_STYLE, t: '' }] }],
     box: null,
   };
+  if (d.ind > 0) item.ind = Math.min(d.ind, item.w - MIN_WIDTH / 2);
+  if (d.h > 0) item.h = d.h;
   updateTextBox(item);
   return item;
 }
 
 export function packText(item) {
-  return { tool: 'text', x: item.x, y: item.y, w: item.w, z: item.z, base: item.base, paras: item.paras, box: item.box };
+  const out = { tool: 'text', x: item.x, y: item.y, w: item.w, z: item.z, base: item.base, paras: item.paras, box: item.box };
+  if (item.ind > 0) out.ind = item.ind;
+  if (item.h > 0) out.h = item.h;
+  return out;
 }
 
 // ---------- Messen ----------
@@ -205,17 +214,19 @@ export function loadFonts() {
 
 export function layoutText(item) {
   const cached = layoutCache.get(item);
-  if (cached && cached.version === fontsVersion && cached.w === item.w) return cached;
+  if (cached && cached.version === fontsVersion && cached.w === item.w && cached.ind === (item.ind || 0) && cached.h === (item.h || 0)) return cached;
+  const ind = Math.max(0, Math.min(item.ind || 0, item.w - 20));
 
   const lines = [];
   let y = 0;
   let number = 0;
-  for (const para of item.paras) {
+  item.paras.forEach((para, pi) => {
     number = para.l === 'number' ? number + 1 : 0;
     const indent = para.l ? LIST_INDENT * item.base : 0;
     const width = Math.max(10, item.w - indent);
     const first = para.runs[0] || DEFAULT_STYLE;
-    const paraLines = wrapParagraph(para, width);
+    const shift = pi === 0 ? ind : 0; // erste Zeile des ersten Absatzes: hinter der Handschrift
+    const paraLines = wrapParagraph(para, width, shift);
     paraLines.forEach((line, k) => {
       // Zeilenhöhe wie im Browser: jedes Stück bringt (Schrift + halber Zeilenabstand) mit,
       // dazu die Schrift des Absatzes selbst ("strut")
@@ -228,28 +239,30 @@ export function layoutText(item) {
         above = Math.max(above, m.asc * run.s + half);
         below = Math.max(below, m.desc * run.s + half);
       }
-      const offset = para.a === 'right' ? width - line.width : para.a === 'center' ? (width - line.width) / 2 : 0;
+      const lead = k === 0 ? shift : 0;
+      const offset = para.a === 'right' ? width - lead - line.width : para.a === 'center' ? (width - lead - line.width) / 2 : 0;
       lines.push({
         top: y,
         baseline: y + above,
         height: above + below,
-        x: indent + Math.max(0, offset),
+        x: indent + lead + Math.max(0, offset),
         segs: line.segs,
         marker: k === 0 && para.l ? { text: para.l === 'bullet' ? '•' : `${number}.`, run: first, indent } : null,
       });
       y += above + below;
     });
-  }
-  const result = { version: fontsVersion, w: item.w, lines, height: Math.max(y, LINE_HEIGHT * item.base) };
+  });
+  const result = { version: fontsVersion, w: item.w, ind, h: item.h || 0, lines, height: Math.max(y, LINE_HEIGHT * item.base, item.h || 0) };
   layoutCache.set(item, result);
   return result;
 }
 
 // Einen Absatz in Zeilen aufteilen (Wort für Wort, notfalls mitten im Wort)
-function wrapParagraph(para, width) {
+function wrapParagraph(para, fullWidth, firstShift = 0) {
   const lines = [];
   let segs = [];
   let x = 0;
+  let width = Math.max(10, fullWidth - firstShift); // die erste Zeile ist (mit Einzug) kürzer
   let trailing = 0; // Breite der Leerzeichen am Zeilenende (zählen nicht mit)
 
   const push = (run, text, w) => {
@@ -265,6 +278,7 @@ function wrapParagraph(para, width) {
     segs = [];
     x = 0;
     trailing = 0;
+    width = fullWidth;
   };
 
   let lastRun = null;
@@ -321,6 +335,8 @@ export function transformText(item, m) {
   const copy = {
     ...item,
     w: Math.max(MIN_WIDTH * Math.min(1, k), item.w * k),
+    ...(item.ind ? { ind: item.ind * k } : {}),
+    ...(item.h ? { h: item.h * k } : {}),
     base: round(item.base * k),
     paras: Math.abs(k - 1) < 1e-4 ? item.paras : item.paras.map((p) => ({ ...p, runs: p.runs.map((r) => ({ ...r, s: round(r.s * k) })) })),
     box: null,
@@ -408,5 +424,16 @@ export function textHighlight(hex) {
 // Liegt der Punkt (Seiten-Koordinaten) auf diesem Textfeld? pad = etwas Spielraum
 export function textHit(item, x, y, pad = 0) {
   const b = item.box;
-  return x >= b.minX - pad && x <= b.maxX + pad && y >= b.minY - pad && y <= b.maxY + pad;
+  if (!(x >= b.minX - pad && x <= b.maxX + pad && y >= b.minY - pad && y <= b.maxY + pad)) return false;
+  // L-Form: vor der ersten Zeile steht Handschrift, das gehört nicht zum Textfeld
+  if (item.ind > 0) {
+    const first = layoutText(item).lines[0];
+    if (first && x < item.x + item.ind - pad && y < item.y + first.height) return false;
+  }
+  return true;
+}
+
+// Höhe der ersten Zeile (für den L-förmigen Rahmen im Editor)
+export function firstLineHeight(item) {
+  return layoutText(item).lines[0]?.height || LINE_HEIGHT * item.base;
 }
