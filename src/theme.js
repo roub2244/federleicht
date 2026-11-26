@@ -57,15 +57,7 @@ export function setPref(key, value) {
   } catch {
     /* egal */
   }
-  if (key === 'theme' || key === 'accent') // Im Splitscreen: Änderung im anderen Fenster gleich übernehmen
-window.addEventListener('storage', (e) => {
-  if (e.key !== KEY) return;
-  prefs = load();
   applyTheme();
-  for (const fn of listeners) fn('all');
-});
-
-applyTheme();
   for (const fn of listeners) fn(key);
 }
 
@@ -76,15 +68,7 @@ export function resetPrefs() {
   } catch {
     /* egal */
   }
-  // Im Splitscreen: Änderung im anderen Fenster gleich übernehmen
-window.addEventListener('storage', (e) => {
-  if (e.key !== KEY) return;
-  prefs = load();
   applyTheme();
-  for (const fn of listeners) fn('all');
-});
-
-applyTheme();
   for (const fn of listeners) fn('all');
 }
 
@@ -117,15 +101,7 @@ export function applyTheme() {
 
 mq.addEventListener?.('change', () => {
   if (prefs.theme !== 'auto') return;
-  // Im Splitscreen: Änderung im anderen Fenster gleich übernehmen
-window.addEventListener('storage', (e) => {
-  if (e.key !== KEY) return;
-  prefs = load();
   applyTheme();
-  for (const fn of listeners) fn('all');
-});
-
-applyTheme();
   for (const fn of listeners) fn('theme');
 });
 

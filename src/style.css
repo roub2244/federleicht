@@ -2850,13 +2850,61 @@ body {
   background: rgba(74, 108, 247, 0.3);
 }
 
-/* Gestrichelter Rahmen um das Textfeld (bleibt beim Zoomen gleich dünn) */
+/* Gestrichelter Rahmen um das Textfeld (Rechteck oder L-Form, bleibt beim Zoomen gleich dünn) */
 .tbox-frame {
   position: absolute;
-  inset: -8px -10px;
-  border: 1.5px dashed var(--accent);
-  border-radius: 8px;
+  left: 0;
+  top: 0;
+  width: 1px;
+  height: 1px;
+  overflow: visible;
   pointer-events: none;
+}
+.tbox-frame path {
+  fill: color-mix(in srgb, var(--accent) 5%, transparent);
+  stroke: var(--accent);
+  stroke-width: 1.5;
+  stroke-dasharray: 6 5;
+  stroke-linejoin: round;
+}
+
+/* Erste Zeile hinter der Handschrift: Einzug nur für die allererste Zeile */
+.tbox-edit {
+  text-indent: var(--ind, 0);
+}
+.tbox-edit > * + *,
+.tbox-edit li + li,
+.tbox-edit ul ul,
+.tbox-edit ol ol {
+  text-indent: 0;
+}
+
+/* Rand anfassen = verschieben (unsichtbare Streifen um das Feld) */
+.tbox-edge {
+  position: absolute;
+  touch-action: none;
+  cursor: move;
+}
+.tbox-edge[data-e='t'] {
+  left: calc(var(--ind, 0px) - 4px);
+  right: -10px;
+  top: -22px;
+  height: 18px;
+}
+.tbox-edge[data-e='b'] {
+  left: -10px;
+  right: 20px;
+  bottom: -24px;
+  height: 18px;
+}
+.tbox-edge[data-e='l'] {
+  left: -26px;
+  width: 18px;
+  top: 0;
+  bottom: 0;
+}
+.has-ind .tbox-edge[data-e='l'] {
+  top: calc(var(--s, 1) * 1.6em);
 }
 
 .tbox-move,
@@ -2909,6 +2957,58 @@ body {
   border-radius: 4px;
   background: var(--accent);
   box-shadow: 0 0 0 2px var(--bar), 0 2px 6px rgba(30, 40, 90, 0.3);
+}
+
+/* Ecke rechts unten: breiter und höher ziehen */
+.tbox-corner,
+.tbox-ind {
+  position: absolute;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: none;
+  background: none;
+  touch-action: none;
+}
+.tbox-corner {
+  right: -30px;
+  bottom: -30px;
+  width: 40px;
+  height: 40px;
+  cursor: nwse-resize;
+}
+.tbox-corner i {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 3px var(--bar), 0 2px 6px rgba(30, 40, 90, 0.3);
+}
+/* Dreieck oben: Einzug der ersten Zeile (wo der Text hinter der Handschrift anfängt) */
+.tbox-ind {
+  left: calc(var(--ind, 0px) - 18px);
+  top: -36px;
+  width: 36px;
+  height: 30px;
+  cursor: ew-resize;
+}
+.tbox-ind i {
+  width: 0;
+  height: 0;
+  border-left: 8px solid transparent;
+  border-right: 8px solid transparent;
+  border-top: 11px solid var(--accent);
+  filter: drop-shadow(0 1px 2px rgba(30, 40, 90, 0.35));
+}
+.tbox:not(.has-ind) .tbox-ind {
+  display: none;
+}
+/* Größere Griffe für den Stift */
+.tbox-move {
+  width: 40px !important;
+  height: 40px !important;
+  left: -30px !important;
+  top: -48px !important;
 }
 
 /* Text hat kein Einstellungs-Popup -> kein Pfeil */

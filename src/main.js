@@ -403,6 +403,24 @@ const app = {
     if (hit) textEditor.open(page, hit, { at: client });
     else textEditor.create(page, point[0], y, nextZ++);
   },
+  // Text-Werkzeug auf ein fertiges Textfeld gesetzt -> anfassen (ziehen = verschieben)
+  textPress(point) {
+    if (textEditor.active || tools.tool !== 'text') return false;
+    const index = doc.indexAt(point[1]);
+    const page = doc.pages[index];
+    const y = point[1] - doc.top(index);
+    const hit = page && textEditor.hitTest(page, point[0], y, 10 / view.scale);
+    if (!hit) return false;
+    textEditor.grabStart(page, hit, [point[0], y]);
+    return true;
+  },
+  textGrabMove(point) {
+    const index = doc.indexAt(point[1]);
+    textEditor.grabMove([point[0], point[1] - doc.top(index)]);
+  },
+  textGrabEnd(moved) {
+    return textEditor.grabEnd(moved);
+  },
   // Mit dem Text-Werkzeug gezogen: Textfeld von a bis b (so breit wie gezogen)
   textDrag(a, b) {
     if (textEditor.active) return textEditor.finish();
