@@ -196,6 +196,8 @@ export class Renderer {
         if (sv) drawViewed(c, s, sv);
         else fillStroke(c, s);
       }
+      // Zusätzliches auf der Seite (Hausaufgaben-Fähnchen, siehe homework.js)
+      this.decorate?.(c, i, this.view.scale * this.dpr);
       c.restore();
     }
   }

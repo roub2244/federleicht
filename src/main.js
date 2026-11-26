@@ -40,6 +40,11 @@ import { setupAssist } from './assist.js';
 import { convertHandwriting } from './convert.js';
 import { setupAudio } from './audio.js';
 import { setupMathHelp, MATH_ICON } from './mathhelp.js';
+import { setupContents, TOC_ICON } from './contents.js';
+import { HW_ICON, setLessonFinder, suggestDue, createHomework, editHomework, dueLabel, drawHomework, hitHomework } from './homework.js';
+import { nextLessonDate, subjectIdFor } from './timetable.js';
+import { splitLines, recognizeLines } from './convert.js';
+import { plain as plainText } from './searchindex.js';
 
 // ---------- Einstellungen ----------
 // Farbe, Dicke, Stiftart usw. kommen aus der Werkzeugleiste (siehe tools.js)
@@ -98,6 +103,7 @@ let mediaMenu = null;    // Menüs "Einfügen" und "Teilen" (siehe mediamenu.js)
 let claudeMenu = null;   // Claude-Knopf (siehe claudemenu.js)
 let assist = null;       // Handschrifthilfe (siehe assist.js), wird weiter unten eingerichtet
 let lasering = false;
+let contents = null;     // Inhaltsverzeichnis-Leiste (siehe contents.js), wird weiter unten eingerichtet
 let moreMenu = null;     // ⋮-Menü oben rechts (siehe moremenu.js)
 let picking = false;     // Stift zieht gerade einen Rahmen (Bereich wählen, siehe areapick.js)    // Laserpointer: Stift liegt gerade auf (siehe laser.js)
 
@@ -143,6 +149,16 @@ const app = {
     }
     // Lasso: statt zu zeichnen eine Auswahl-Schlinge ziehen (siehe lasso.js)
     if (tools.tool === 'lasso') return lasso.penDown(point);
+    // Fähnchen einer Hausaufgabe angetippt: abhaken/bearbeiten statt zu zeichnen
+    if (note?.homework?.length && tools.tool !== 'eraser') {
+      const i = doc.indexAt(point[1]);
+      const hw = hitHomework(note.homework, doc.pages[i].id, point[0], point[1] - doc.top(i));
+      if (hw) {
+        swallowPen = true;
+        tapHomework(hw);
+        return;
+      }
+    }
     // Aufnahme wird abgespielt: Strich antippen springt zu der Stelle im Ton
     if (audio.playing && (tools.tool === 'pen' || tools.tool === 'highlighter')) {
       const i = doc.indexAt(point[1]);
@@ -1009,6 +1025,7 @@ function afterViewChange() {
   ruler.redraw();
   zoomButton.textContent = `${Math.round((view.scale / view.fitScale) * 100)} %`;
   pages?.onViewChange();
+  contents?.updateCurrent();
   scheduleSession();
 }
 
@@ -1753,6 +1770,143 @@ moreEntries.push({
       run: () => startMath(),
     },
 });
+// ---------- Inhaltsverzeichnis + Hausaufgaben (siehe contents.js, homework.js, timetable.js) ----------
+setLessonFinder(nextLessonDate); // Abgabe-Vorschlag: nächste Stunde im Fach (aus dem Stundenplan)
+const tocButton = document.getElementById('btn-toc');
+const hwButton = document.getElementById('btn-homework');
+
+// Fach der offenen Notiz = Name ihres Ordners (oder eines Ordners darüber, der wie ein Fach heißt)
+async function noteSubject() {
+  if (!note?.folderId) return null;
+  const folders = await store.getAllFolders();
+  const own = folders.find((f) => f.id === note.folderId);
+  for (let f = own; f; f = folders.find((x) => x.id === f.parentId)) if (subjectIdFor(f.name)) return f.name;
+  return own?.name || null;
+}
+
+// Kapitel/Hausaufgaben geändert -> Notiz speichern, Seite neu malen, Leiste auffrischen
+function saveNoteMeta() {
+  if (!note) return;
+  noteDirty = true;
+  markDirty([]);
+  renderer.renderNow();
+  contents.refresh();
+}
+
+// Die Fähnchen der Hausaufgaben werden mit den Strichen auf die Seite gemalt
+renderer.decorate = (c, i, px) => {
+  if (note?.homework?.length) drawHomework(c, note.homework, doc.pages[i].id, px);
+};
+
+contents = setupContents({
+  stage,
+  doc,
+  note: () => note,
+  currentIndex,
+  // Zu einer Stelle scrollen (Seite i, Höhe y auf der Seite)
+  scrollTo(i, y, hw) {
+    animateViewY(view.height * 0.28 - (doc.top(i) + y) * view.scale);
+    if (hw) setTimeout(() => flashFound({ pageIndex: i, box: hw.box }), 460);
+  },
+  // Wo schaue ich gerade hin? (für "Kapitel hier einfügen")
+  viewSpot() {
+    const [, y] = view.toPage(view.width / 2, view.height * 0.28);
+    const i = doc.indexAt(y);
+    return { pageIndex: i, y: Math.max(0, y - doc.top(i)) };
+  },
+  markHomework,
+  editHomework: editHw,
+  toggleHomework,
+  saveNoteMeta,
+  onToggle: (open) => tocButton.classList.toggle('on', open),
+});
+tocButton.addEventListener('click', () => {
+  closeAllPopups();
+  if (note) contents.toggle('toc');
+});
+hwButton.addEventListener('click', () => markHomework());
+
+// Hausaufgabe markieren: Rahmen ziehen -> Text lesen -> Abgabe vorschlagen -> eintragen
+async function markHomework() {
+  if (!note) return;
+  closeAllPopups();
+  if (areaPick.active) return areaPick.cancel();
+  hwButton.classList.add('on');
+  const result = await areaPick.start({
+    title: 'Hausaufgabe markieren',
+    hint: 'Ziehe mit dem Stift einen Rahmen um die Aufgabe (z. B. „S. 54 Nr. 3“)',
+    icon: HW_ICON,
+  });
+  hwButton.classList.remove('on');
+  if (!result || result.action || !result.rect) return;
+  const { page, rect, items } = result;
+  const subject = await noteSubject();
+  const suggestion = suggestDue(subject);
+  // Was steht im Rahmen? Textfelder direkt, Handschrift mit der Erkennung lesen
+  const parts = items.filter((s) => s.tool === 'text').map((s) => plainText(s).replace(/\s+/g, ' ').trim());
+  const ink = items.filter((s) => s.tool === 'pen' && !s.shape);
+  if (ink.length) {
+    toast('Lese die Aufgabe …');
+    try {
+      parts.push(...(await recognizeLines(splitLines(ink))));
+    } catch (err) {
+      console.warn('Hausaufgabe lesen', err);
+    }
+  }
+  const text = parts.filter(Boolean).join(' ').trim();
+  const answer = await editHomework({ text, due: suggestion.due, subject, why: suggestion.why, isNew: true });
+  if (!answer || answer.remove) return;
+  const hw = createHomework({ pageId: page.id, box: [rect.minX, rect.minY, rect.maxX, rect.maxY], text: answer.text, due: answer.due });
+  if (subject) hw.subject = subject;
+  note.homework = [...(note.homework || []), hw];
+  saveNoteMeta();
+  toast(`Hausaufgabe bis ${dueLabel(hw.due)} eingetragen`);
+}
+
+async function editHw(hw) {
+  const answer = await editHomework({ text: hw.text, due: hw.due, subject: hw.subject, isNew: false });
+  if (!answer || !note) return;
+  if (answer.remove) note.homework = note.homework.filter((h) => h !== hw);
+  else Object.assign(hw, { text: answer.text, due: answer.due });
+  saveNoteMeta();
+}
+
+function toggleHomework(hw) {
+  hw.done = !hw.done;
+  hw.doneAt = hw.done ? Date.now() : undefined;
+  saveNoteMeta();
+}
+
+// Fähnchen auf der Seite mit dem Stift antippen: abhaken oder bearbeiten
+async function tapHomework(hw) {
+  const a = await chooseAction({
+    title: hw.text || 'Hausaufgabe',
+    text: hw.done ? 'Schon erledigt' : `Bis ${dueLabel(hw.due, { long: true })}`,
+    actions: [
+      { id: 'edit', label: 'Bearbeiten' },
+      { id: 'done', label: hw.done ? 'Doch nicht erledigt' : 'Erledigt ✓', primary: true },
+    ],
+  });
+  if (a === 'done') toggleHomework(hw);
+  else if (a === 'edit') editHw(hw);
+}
+
+moreEntries.push({
+  group: 'Notiz',
+  row: () => note && { tool: 'toc', icon: TOC_ICON, label: 'Inhaltsverzeichnis', hint: 'Überschriften, Kapitel und Hausaufgaben – antippen springt hin', run: () => contents.open('toc') },
+});
+moreEntries.push({
+  group: 'Notiz',
+  row: () =>
+    note && {
+      tool: 'homework',
+      icon: HW_ICON,
+      label: 'Hausaufgabe markieren',
+      hint: 'Rahmen um die Aufgabe ziehen, Abgabe = nächste Stunde im Fach',
+      run: () => markHomework(),
+    },
+});
+
 // Mathe-Zeichen tippen: neues Textfeld in der Mitte + Mathe-Schreibmenü (siehe mathkeys.js)
 const MATHKEYS_ICON = '<svg viewBox="0 0 24 24"><path d="M17 5H7l6 7-6 7h10"/></svg>';
 moreEntries.push({
@@ -1916,7 +2070,13 @@ function markDirty(list, structure = false) {
   setSaveState('saving');
   clearTimeout(saveTimer);
   saveTimer = setTimeout(() => saveNow(), SAVE_DELAY);
+  // Inhaltsverzeichnis offen? Nach einer kurzen Schreibpause neu lesen
+  if (contents?.isOpen && list.length) {
+    clearTimeout(tocTimer);
+    tocTimer = setTimeout(() => contents.refresh(), 1800);
+  }
 }
+let tocTimer = 0;
 
 // Speichern anstoßen. Mehrere Aufrufe laufen nacheinander, nie gleichzeitig.
 function saveNow({ thumbs = false } = {}) {
@@ -2161,6 +2321,7 @@ async function leaveNote() {
   laser.clear();
   areaPick.cancel();
   mathHelp.close();
+  contents?.reset();
   await audio.leave(); // läuft eine Aufnahme, wird sie jetzt gespeichert
   if (current) app.endStroke();
   if (erasing) app.endErase();

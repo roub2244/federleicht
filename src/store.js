@@ -293,6 +293,8 @@ function fromBase64(text) {
   return new Float32Array(base64ToBytes(text).buffer);
 }
 
+const EXTRA_KEYS = ['federleicht.timetable', 'federleicht.tasks'];
+
 export async function exportAll() {
   const db = await openDB();
   const tx = db.transaction(['notes', 'pages', 'folders', 'blobs']);
@@ -312,6 +314,8 @@ export async function exportAll() {
     version: 2,
     files,
     exported: new Date().toISOString(),
+    // Stundenplan und selbst eingetragene Hausaufgaben/Termine (liegen im localStorage)
+    extras: Object.fromEntries(EXTRA_KEYS.map((k) => [k, localStorage.getItem(k)]).filter(([, v]) => v != null)),
     folders,
     // Vorschaubilder lassen wir weg, die malt die App beim nächsten Öffnen neu
     notes: notes.map(({ thumbLight, thumbDark, ...n }) => n),
@@ -334,6 +338,9 @@ export async function importAll(data) {
     tx.objectStore('pages').put({ ...p, strokes: p.strokes.map((s) => (s.pts ? { ...s, pts: fromBase64(s.pts) } : s)) });
   }
   await finished(tx);
+  for (const [k, v] of Object.entries(data.extras || {})) {
+    if (EXTRA_KEYS.includes(k) && typeof v === 'string') localStorage.setItem(k, v);
+  }
   return data.notes.length;
 }
 
