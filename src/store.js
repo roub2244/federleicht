@@ -207,6 +207,7 @@ export function packStroke(s) {
   };
   // Formen (Etappe 6): nur speichern, was es gibt – alte Striche bleiben so klein wie vorher
   if (s.shape) packed.shape = s.shape;
+  if (s.v) packed.v = s.v; // Strich-Version (siehe ink.js STROKE_VERSION)
   if (s.rec) packed.rec = s.rec; // Sprachaufnahme: [Aufnahme, Start-ms, Ende-ms]
   if (s.fill && s.fillAlpha > 0) {
     packed.fill = s.fill;
@@ -241,6 +242,7 @@ export function unpackStroke(d) {
     fillAlpha: d.fillAlpha || 0,
   };
   if (d.rec) stroke.rec = d.rec;
+  if (d.v) stroke.v = d.v;
   if (!stroke.box && points.length) finishStroke(stroke); // ohne Rechteck würde er nie gemalt
   // Die gespeicherte Form ist schon "eingepackt" -> beim nächsten Speichern wiederverwenden
   if (d.pts instanceof Float32Array) packCache.set(stroke, d);

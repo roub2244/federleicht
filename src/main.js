@@ -6,7 +6,7 @@ import { NoteDocument, createPage, END_SPACE } from './document.js';
 import { DEFAULT_TEMPLATE, drawThumbnail, paperColor } from './templates.js';
 import { setupPages } from './pages.js';
 import { Renderer } from './renderer.js';
-import { createStroke, buildPath, finishStroke, fillStroke, strokeHit, cutStroke, inkTheme, setInkTheme, displayColor } from './ink.js';
+import { createStroke, buildPath, tailBox, finishStroke, fillStroke, strokeHit, cutStroke, inkTheme, setInkTheme, displayColor } from './ink.js';
 import { setupInput } from './input.js';
 import { HoldDetector, averagePressure, longEnough } from './straighten.js';
 import { History } from './history.js';
@@ -56,6 +56,8 @@ const redoButton = document.getElementById('btn-redo');
 const doc = new NoteDocument(loadJSON('pageTemplate', DEFAULT_TEMPLATE));
 const view = new View();                  // Zoom und Verschiebung
 const renderer = new Renderer(canvas, view, doc);
+// Nur beim Entwickeln: für automatische Tests von außen erreichbar (fällt im fertigen Build weg)
+if (import.meta.env.DEV) window.__fl = { view, renderer, doc, tools };
 const laser = setupLaser({ stage, view, tools }); // Laserpointer (siehe laser.js)
 const areaPick = setupAreaPick({ stage, view, doc }); // Bereich wählen (Zu Text, Mathe-Hilfe)
 const ruler = setupRuler({ stage, view, onChange: () => applyRulerButton() }); // Lineal und Geodreieck
@@ -163,14 +165,13 @@ const app = {
     beginStroke(toLocal(point), pointerType);
   },
 
-  extendStroke(points, predicted) {
+  extendStroke(points) {
     if (points.length === 0 || swallowPen) return;
     if (picking) return areaPick.move(points[points.length - 1]);
     if (lasering) return laser.move(points);
     if (tools.tool === 'lasso') return lasso.penMove(points);
     if (shapeDrag) return updateShapeDrag(toLocal(points[points.length - 1]));
     points = points.map(toLocal);
-    predicted = predicted.map(toLocal);
 
     // Nach einem erkannten Abheben: erst wieder richtig aufdrücken, dann neuer Strich
     if (!current) {
@@ -180,7 +181,7 @@ const app = {
       beginStroke(points[first], liftedPointer);
       liftedPointer = null;
       points = points.slice(first + 1);
-      if (points.length === 0) return drawCurrentStroke(predicted);
+      if (points.length === 0) return drawCurrentStroke();
     }
     const last = points[points.length - 1];
 
@@ -190,7 +191,7 @@ const app = {
       const b = ruler.project(snap, toDoc(last));
       current.points = densify([toLocal(a), toLocal(b)], false, pressure, 2.5);
       ruler.showMeasure(a, b);
-      drawCurrentStroke([]);
+      drawCurrentStroke();
       return;
     }
 
@@ -198,7 +199,7 @@ const app = {
     // größer/kleiner und drehen, solange die Spitze unten bleibt)
     if (current.straight) {
       applyShapeFit(last);
-      drawCurrentStroke([]);
+      drawCurrentStroke();
       return;
     }
 
@@ -218,18 +219,20 @@ const app = {
           current.points.splice(0, verdict.trimStart);
         } else if (verdict?.cut !== undefined) {
           // Stift ist abgesetzt, liegt aber noch leicht auf: Strich hier beenden
-          current.points.length = Math.max(1, verdict.cut);
+          trimEnd(Math.max(1, verdict.cut));
           finishCurrentStroke();
           liftedPointer = 'pen';
           // Falls in denselben Punkten schon wieder aufgedrückt wurde: gleich weitermachen
           const rest = points.slice(k + 1);
-          if (rest.length) app.extendStroke(rest.map(toDoc), []);
+          if (rest.length) app.extendStroke(rest.map(toDoc));
           return;
         }
       }
     }
     if (tools.straighten) hold.moved(last, view.scale);
-    drawCurrentStroke(steady.predicted(predicted, view.scale));
+    // Keine vorhergesagten Punkte mehr: Die haben das Ende kurz zu weit gemalt und im nächsten
+    // Bild wieder zurückgenommen – genau das sah beim Schreiben "verbuggt" aus (Robins Video, 26.11.).
+    drawCurrentStroke();
   },
 
   endStroke() {
@@ -261,7 +264,7 @@ const app = {
     }
     if (current && !current.simulatePressure && !current.straight) {
       // Leichte Punkte ganz am Ende (beim Abheben) weglassen -> kein Haken
-      current.points.length = Math.max(1, lift.keepAtEnd(current.points.length));
+      trimEnd(Math.max(1, lift.keepAtEnd(current.points.length)));
     }
     finishCurrentStroke();
   },
@@ -440,7 +443,7 @@ function beginStroke(point, pointerType) {
     current.straight = true;
     current.shape = 'line';
     current.points = densify([toLocal(a), toLocal(a)], false, current.ruled.pressure, 2.5);
-    drawCurrentStroke([]);
+    drawCurrentStroke();
     return;
   }
   lift.reset();
@@ -448,7 +451,7 @@ function beginStroke(point, pointerType) {
   current.points.push(inkPoint(point));
   if (!current.simulatePressure) lift.add(point, 0, view.scale);
   if (tools.straighten) hold.moved(point, view.scale);
-  drawCurrentStroke([]);
+  drawCurrentStroke();
 }
 
 // Den laufenden Strich abschließen und auf die Seite legen
@@ -468,7 +471,7 @@ function finishCurrentStroke() {
   finishStroke(current);
   if (current.box && doc.pages.includes(currentPage)) {
     currentPage.strokes.push(current); // hat das höchste z, gehört also ans Ende
-    renderer.commitStroke(current, doc.pages.indexOf(currentPage));
+    renderer.commitStroke(current, doc.pages.indexOf(currentPage), finalTail(current));
     history.push({ strokes: [{ page: currentPage, added: [current], removed: [] }] });
     pages.strokesChanged();
     markDirty([currentPage]);
@@ -484,22 +487,75 @@ function inkPoint(p) {
   return [p[0], p[1], Math.max(MIN_INK_PRESSURE, p[2])];
 }
 
-// Den Strich, der gerade entsteht, sofort anzeigen
-function drawCurrentStroke(predicted) {
-  const built = buildPath(current, predicted, false);
+// Den Strich, der gerade entsteht, sofort anzeigen.
+// Damit das auch bei riesigen Strichen schnell bleibt, sagen wir dem Renderer, welches Stück am
+// Ende sich seit dem letzten Mal ändern konnte (siehe ink.js tailBox). Nur das wird neu gemalt.
+// Den ganzen Strich neu malen wir nur, wenn sich auch vorne etwas ändern kann:
+// noch kurzer Strich, Anfang weggeschnitten (lift.js), Spitze am Anfang wächst noch (Füller,
+// Pinsel), oder der Strich ist gerade zur Form geworden.
+let liveInfo = null; // { stroke, first, startTaper, cutBox } vom letzten Malen
+function drawCurrentStroke() {
+  const built = buildPath(current, { live: true });
   const { box } = built;
   if (!box) return;
-  const [x0, y0] = view.toScreen(box.minX, box.minY + currentTop);
-  const [x1, y1] = view.toScreen(box.maxX, box.maxY + currentTop);
   const stroke = current;
+  const first = stroke.points[0];
+  const steadyStart =
+    liveInfo && liveInfo.stroke === stroke && liveInfo.first === first && liveInfo.startTaper === built.startTaper;
+  const isFreehand = !stroke.straight && !stroke.ruled && !stroke.shape;
+  const tail = steadyStart && isFreehand ? tailBox(built) : null;
+  liveInfo = { stroke, first, startTaper: built.startTaper, cutBox: liveInfo?.stroke === stroke ? liveInfo.cutBox : null };
   const index = doc.pages.indexOf(currentPage);
-  renderer.setOverlay({
-    box: { minX: x0, minY: y0, maxX: x1, maxY: y1 },
-    draw(ctx, rend) {
-      rend.enterPage(ctx, index);
-      fillStroke(ctx, stroke, built);
+  renderer.setOverlay(
+    {
+      box: screenBox(box),
+      draw(ctx, rend) {
+        rend.enterPage(ctx, index);
+        fillStroke(ctx, stroke, built);
+      },
     },
-  });
+    tail && screenBox(tail),
+  );
+}
+
+// Beim Abheben: Wo sieht der fertige Strich anders aus als beim Schreiben? (null = überall möglich)
+function finalTail(stroke) {
+  if (!liveInfo || liveInfo.stroke !== stroke || liveInfo.first !== stroke.points[0]) return null;
+  if (stroke.straight || stroke.shape) return null;
+  const built = buildPath(stroke);
+  if (built.startTaper !== liveInfo.startTaper) return null;
+  // Die Spitze am Ende (Füller, Pinsel) ist erst jetzt dazugekommen
+  let tail = tailBox(built, built.endTaper);
+  if (!tail) return null;
+  const cut = liveInfo.cutBox;
+  if (cut) tail = { minX: Math.min(tail.minX, cut.minX), minY: Math.min(tail.minY, cut.minY), maxX: Math.max(tail.maxX, cut.maxX), maxY: Math.max(tail.maxY, cut.maxY) };
+  return screenBox(tail);
+}
+
+// Das Ende des laufenden Strichs abschneiden (nur noch n Punkte behalten).
+// Die weggeschnittenen Punkte waren schon zu sehen: Ihre Stelle muss beim Abheben neu gemalt werden.
+function trimEnd(n) {
+  const pts = current.points;
+  if (n >= pts.length) return;
+  if (liveInfo?.stroke === current) {
+    const pad = current.size * 1.5 + 1;
+    let b = liveInfo.cutBox;
+    for (let i = Math.max(0, n - 1); i < pts.length; i++) {
+      const [x, y] = pts[i];
+      b = b
+        ? { minX: Math.min(b.minX, x - pad), minY: Math.min(b.minY, y - pad), maxX: Math.max(b.maxX, x + pad), maxY: Math.max(b.maxY, y + pad) }
+        : { minX: x - pad, minY: y - pad, maxX: x + pad, maxY: y + pad };
+    }
+    liveInfo.cutBox = b;
+  }
+  pts.length = n;
+}
+
+// Rechteck auf der aktuellen Seite -> Bildschirm
+function screenBox(b) {
+  const [x0, y0] = view.toScreen(b.minX, b.minY + currentTop);
+  const [x1, y1] = view.toScreen(b.maxX, b.maxY + currentTop);
+  return { minX: Math.min(x0, x1), minY: Math.min(y0, y1), maxX: Math.max(x0, x1), maxY: Math.max(y0, y1) };
 }
 
 // Dokument-Punkt -> Punkt auf der aktuellen Seite
@@ -532,7 +588,7 @@ function straightenCurrentStroke() {
   current.linePressure = averagePressure(current.points);
   current.fit = { shape, ref: [end[0], end[1]] };
   applyShapeFit(end);
-  drawCurrentStroke([]);
+  drawCurrentStroke();
   navigator.vibrate?.(12); // kurzes Ruckeln als Rückmeldung (falls das Gerät es kann)
 }
 

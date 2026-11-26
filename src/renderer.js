@@ -225,14 +225,16 @@ export class Renderer {
     this.drawOverlay();
   }
 
-  // Einen fertigen Strich von Seite i ins Zwischenbild übernehmen (ohne alles neu zu malen)
-  commitStroke(stroke, i) {
+  // Einen fertigen Strich von Seite i ins Zwischenbild übernehmen (ohne alles neu zu malen).
+  // tail (Bildschirm-Rechteck, optional): nur dort unterscheidet sich der fertige Strich von dem,
+  // was beim Schreiben schon zu sehen war (Spitze am Ende). Dann wird nur das neu kopiert.
+  commitStroke(stroke, i, tail = null) {
     const c = this.cacheCtx;
     c.save();
     this.enterPage(c, i);
     fillStroke(c, stroke);
     c.restore();
-    this.setOverlay(null);
+    this.setOverlay(null, tail);
   }
 
   // Overlay setzen und SOFORT malen (wird direkt im Stift-Event aufgerufen).
@@ -244,19 +246,35 @@ export class Renderer {
   // gemalt: Die Schrift flackerte und "zuckte" beim Schreiben.
   // Jetzt bauen wir das Stück fertig in einem unsichtbaren Hilfsbild zusammen und kopieren es
   // in EINEM Schritt auf den Bildschirm. Es gibt nur noch "vorher" oder "nachher".
-  setOverlay(overlay) {
+  //
+  // tail (Bildschirm-Rechteck, optional) = beim Schreiben: Nur hier hat sich seit dem letzten Mal
+  // etwas geändert (das Ende des Strichs, siehe ink.js tailBox). Dann kopieren und malen wir nur
+  // dieses kleine Stück statt des ganzen Strichs. Früher wurde bei jeder Stiftbewegung das ganze
+  // Rechteck um den Strich neu gemalt – bei großen Strichen fast der ganze Bildschirm, viele Male
+  // pro Sekunde. Das Tablet kam nicht mehr hinterher, und die Linie lief dem Stift nach.
+  setOverlay(overlay, tail = null) {
     const newBox = overlay ? this.toDeviceBox(overlay.box) : null;
-    const dirty = unionBox(this.lastBox, newBox);
+    const tailBox = tail ? this.toDeviceBox(tail) : null;
+    // Nur-das-Ende geht nur, wenn vorher schon derselbe Strich zu sehen war
+    const dirty = tailBox && this.liveTail ? unionBox(this.liveTail, tailBox) : unionBox(this.lastBox, newBox);
+    this.liveTail = overlay && tailBox ? tailBox : null;
     this.overlay = overlay;
     if (!dirty) return this.drawOverlay();
     const w = dirty.maxX - dirty.minX;
     const h = dirty.maxY - dirty.minY;
-    if (w <= 0 || h <= 0) return this.drawOverlay();
+    if (w <= 0 || h <= 0) {
+      this.lastBox = newBox;
+      return;
+    }
     const s = this.scratchFor(w, h);
     s.ctx.setTransform(1, 0, 0, 1, 0, 0);
     s.ctx.drawImage(this.cache, dirty.minX, dirty.minY, w, h, 0, 0, w, h);
     if (overlay) {
       s.ctx.save();
+      // Nur im benutzten Stück malen (das Hilfsbild kann größer sein)
+      s.ctx.beginPath();
+      s.ctx.rect(0, 0, w, h);
+      s.ctx.clip();
       // Wie auf dem echten Canvas malen, nur um die Ecke des Stücks verschoben
       overlay.draw(shifted(s.ctx, dirty.minX, dirty.minY), this);
       s.ctx.restore();
@@ -284,6 +302,7 @@ export class Renderer {
   drawOverlay() {
     if (!this.overlay) {
       this.lastBox = null;
+      this.liveTail = null;
       return;
     }
     this.ctx.save();

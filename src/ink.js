@@ -12,7 +12,7 @@
 //   Pinsel:         leicht = haarfein, fest = sehr breit, spitze Enden, durchscheinender Rand
 //   Textmarker:     breit, durchsichtig, gerade Enden, wird beim Übermalen nicht dunkler
 
-import { getStroke } from 'perfect-freehand';
+import { getStrokePoints, getStrokeOutlinePoints } from 'perfect-freehand';
 import { drawText, transformText, recolorText } from './text.js';
 import { apply as applyMatrix, scaleOf } from './geometry.js';
 import { drawImageItem, transformImage } from './media.js';
@@ -60,6 +60,7 @@ function styleOf(stroke) {
 // Einen neuen, leeren Strich anlegen
 export function createStroke({ tool = 'pen', penType = 'ballpoint', color, size, opacity = 1, simulatePressure, z = 0, shape = null, fill = null, fillAlpha = 0 }) {
   return {
+    v: STROKE_VERSION,  // Version (siehe STROKE_VERSION): ab 2 ohne doppelte Glättung
     shape,              // Form (z. B. 'rect', 'circle') oder null = freihand (siehe shapes.js)
     fill,               // Füllfarbe einer geschlossenen Form (oder null)
     fillAlpha,          // Deckkraft der Füllung (0 bis 1)
@@ -141,14 +142,36 @@ function taperLength(factor, size, length, share) {
   return Math.min(factor * size, length * share);
 }
 
+// Rechen-Maßstab für perfect-freehand.
+// Die Bibliothek hat ein paar feste Grenzen in "ihren" Einheiten: Die letzten 3 Einheiten eines
+// Strichs werden zum Beispiel während des Schreibens übersprungen und durch eine gerade Verbindung
+// zum letzten Punkt ersetzt. Unsere Seite ist 1000 Einheiten breit – 3 Einheiten sind also ein
+// sichtbares Stück (gezoomt sogar ein großes). Genau dort hat das Strichende beim Schreiben
+// "herumgezuckt", weil es bei jedem neuen Punkt neu geknickt wurde (Robins Video, 26.11.).
+// Darum rechnen wir 16-mal größer und verkleinern das Ergebnis wieder: Die Form bleibt gleich,
+// nur dieses Wackel-Stück wird 16-mal kleiner (unsichtbar).
+const PF_SCALE = 16;
+
+// Striche ab Version 2 (alle, die ab jetzt geschrieben werden):
+//   - keine zweite Glättung durch perfect-freehand ("streamline"). Die hat die Linie hinter dem
+//     Stift herlaufen lassen und beim nächsten Punkt die Kurve neu gebogen -> zuckendes Ende.
+//     Unser Steadier (steady.js) glättet schon das Zittern bei langsamer Bewegung.
+//   - kein nachträgliches Zusammenfassen von Punkten (thinPoints) – das macht der Steadier schon
+//     beim Schreiben. So sieht der fertige Strich GENAU so aus wie beim Schreiben.
+export const STROKE_VERSION = 2;
+
 // Aus den Punkten die Umrisse berechnen.
-// extraPoints: vorhergesagte Punkte (nur fürs Anzeigen, werden nicht gespeichert)
-// finished: true, wenn der Stift wieder abgehoben wurde
-export function buildPath(stroke, extraPoints = [], finished = false) {
+// live: true, während der Stift noch schreibt (dann noch keine Spitze am Ende)
+//
+// Wichtig für ruhiges Schreiben: Ein neuer Punkt darf nur das Ende des Strichs verändern.
+// Alles weiter vorne bleibt Pixel für Pixel gleich. Darum muss renderer.js beim Schreiben
+// nur das kleine Stück am Ende neu malen (siehe tailBox) – auch bei riesigen Strichen schnell.
+export function buildPath(stroke, { live = false } = {}) {
   const style = styleOf(stroke);
-  // Viel zu dicht liegende Punkte zusammenfassen (sonst wackelt langsam Geschriebenes, siehe steady.js)
-  let points = stroke.shape ? stroke.points : thinPoints(stroke.points, Math.max(0.5, stroke.size * 0.12));
-  if (extraPoints.length) points = points.concat(extraPoints);
+  const isShape = Boolean(stroke.shape);
+  const modern = stroke.v >= 2;
+  // Alte Striche: viel zu dicht liegende Punkte zusammenfassen (sonst wackelt langsam Geschriebenes, siehe steady.js)
+  let points = isShape || modern ? stroke.points : thinPoints(stroke.points, Math.max(0.5, stroke.size * 0.12));
   let simulate = stroke.simulatePressure && style.thinning > 0;
   if (style.smoothPressure && !stroke.simulatePressure) points = smoothPressure(points, style.smoothPressure);
   if (style.nib) {
@@ -157,31 +180,88 @@ export function buildPath(stroke, extraPoints = [], finished = false) {
   }
   const curve = style.curve || 1;
   // Formen: Punkte genau so nehmen, wie sie sind (kein Glätten, das die Ecken abrunden würde), keine Spitzen
-  const isShape = Boolean(stroke.shape);
   const length = !isShape && (style.taperStart || style.taperEnd) ? pathLength(points) : 0;
+  const streamline = isShape || (modern && !stroke.simulatePressure) ? 0 : style.streamline;
+
+  const K = PF_SCALE;
+  const scaled = new Array(points.length);
+  for (let i = 0; i < points.length; i++) scaled[i] = [points[i][0] * K, points[i][1] * K, points[i][2]];
 
   const layers = [];
   let box = null;
+  let track = null;
+  let maxSize = 0;
+  let startTaper = 0;
+  let endTaper = 0;
   for (const layer of style.layers) {
     const size = stroke.size * layer.scale + (layer.grow || 0);
-    const outline = getStroke(points, {
-      size,
+    const taperStart = taperLength(style.taperStart, size, length, 0.2);
+    // Die Spitze am Ende erst beim Abheben – sonst "zuckt" das Ende beim Schreiben
+    const taperEnd = live ? 0 : taperLength(style.taperEnd, size, length, 0.25);
+    const options = {
+      size: size * K,
       thinning: style.thinning,
       smoothing: isShape ? 0.35 : style.smoothing,
-      streamline: isShape ? 0 : style.streamline,
+      streamline,
       easing: (p) => Math.pow(p, curve),
       simulatePressure: simulate,
-      start: { cap: style.cap, taper: taperLength(style.taperStart, size, length, 0.2) },
-      // Die Spitze am Ende erst beim Abheben – sonst "zuckt" das Ende beim Schreiben
-      end: { cap: style.cap, taper: finished ? taperLength(style.taperEnd, size, length, 0.25) : 0 },
-      last: finished,
-    });
-    const shape = outlineToPath(outline);
+      start: { cap: style.cap, taper: taperStart * K },
+      end: { cap: style.cap, taper: taperEnd * K },
+      // Der Strich geht immer bis GENAU zum letzten Punkt (auch beim Schreiben).
+      // Sonst springt das Ende beim Abheben noch ein Stück nach vorne.
+      last: true,
+    };
+    const strokePoints = getStrokePoints(scaled, options);
+    const outline = getStrokeOutlinePoints(strokePoints, options);
+    const shape = outlineToPath(outline, 1 / K);
     if (!shape.box) continue;
     layers.push({ path: shape.path, alpha: layer.alpha });
     box = box ? unionBox(box, shape.box) : shape.box;
+    if (size >= maxSize) {
+      maxSize = size;
+      track = strokePoints;
+    }
+    startTaper = Math.max(startTaper, taperStart);
+    endTaper = Math.max(endTaper, taperEnd);
   }
-  return { layers, box };
+  return {
+    layers,
+    box,
+    // Für tailBox: Mittellinie (in Rechen-Einheiten), größte Dicke, Spitzen-Längen
+    track,
+    maxSize,
+    startTaper,
+    endTaper,
+    smoothRadius: style.smoothPressure || 0,
+  };
+}
+
+// Welches Stück am Ende des Strichs kann sich durch den nächsten Punkt (oder beim Abheben)
+// noch ändern? Antwort: umgebendes Rechteck in Seiten-Einheiten (oder null = ganzer Strich).
+//   - die letzten Punkte (perfect-freehand schaut für die Richtung einen Punkt voraus,
+//     Druck-Glättung und Füller-Feder ein paar Punkte)
+//   - die letzten Einheiten (Umriss-Punkte haben Mindestabstand, Spitze am Ende)
+// Alles davor ist "fertig" und wird nie mehr anders gemalt.
+export function tailBox(built, extraLength = 0) {
+  const pts = built.track;
+  if (!pts || pts.length < 2) return null;
+  const K = PF_SCALE;
+  const n = pts.length;
+  const total = pts[n - 1].runningLength;
+  const reach = (built.maxSize * 2 + extraLength) * K;
+  let i = Math.max(0, n - 1 - Math.max(8, built.smoothRadius + 6));
+  while (i > 0 && total - pts[i].runningLength < reach) i--;
+  if (i === 0) return null; // Strich ist noch kurz: lieber ganz neu malen
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (let k = i; k < n; k++) {
+    const [x, y] = pts[k].point;
+    if (x < minX) minX = x;
+    if (y < minY) minY = y;
+    if (x > maxX) maxX = x;
+    if (y > maxY) maxY = y;
+  }
+  const pad = built.maxSize * 1.5 + 1;
+  return { minX: minX / K - pad, minY: minY / K - pad, maxX: maxX / K + pad, maxY: maxY / K + pad };
 }
 
 function unionBox(a, b) {
@@ -195,7 +275,7 @@ function unionBox(a, b) {
 
 // Strich fertig machen: endgültige Form berechnen und speichern
 export function finishStroke(stroke) {
-  const { layers, box } = buildPath(stroke, [], true);
+  const { layers, box } = buildPath(stroke);
   stroke.layers = layers;
   stroke.box = box;
   stroke.fillPath = stroke.fill && stroke.fillAlpha > 0 ? polygonPath(stroke.points) : null;
@@ -346,24 +426,31 @@ export function fillStroke(ctx, stroke, built = stroke) {
 
 // Den Umriss (viele Eckpunkte) in eine glatte Form mit Kurven umwandeln.
 // Trick: Wir zeichnen Kurven durch die Mitten zwischen den Punkten.
-function outlineToPath(outline) {
-  if (outline.length < 2) return { path: new Path2D(), box: null };
+// k = Maßstab (Rechen-Einheiten -> Seiten-Einheiten, siehe PF_SCALE).
+// Direkt mit moveTo/quadraticCurveTo statt über einen langen SVG-Text: bei langen Strichen
+// deutlich schneller (das passiert beim Schreiben bei jeder Stiftbewegung).
+function outlineToPath(outline, k = 1) {
+  const n = outline.length;
+  if (n < 2) return { path: new Path2D(), box: null };
 
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-  let d = `M${outline[0][0].toFixed(2)},${outline[0][1].toFixed(2)} Q`;
-
-  for (let i = 0; i < outline.length; i++) {
-    const [x0, y0] = outline[i];
-    const [x1, y1] = outline[(i + 1) % outline.length];
-    d += `${x0.toFixed(2)},${y0.toFixed(2)} ${((x0 + x1) / 2).toFixed(2)},${((y0 + y1) / 2).toFixed(2)} `;
+  const path = new Path2D();
+  path.moveTo(outline[0][0] * k, outline[0][1] * k);
+  for (let i = 0; i < n; i++) {
+    const x0 = outline[i][0] * k;
+    const y0 = outline[i][1] * k;
+    const next = outline[i + 1 < n ? i + 1 : 0];
+    const x1 = next[0] * k;
+    const y1 = next[1] * k;
+    path.quadraticCurveTo(x0, y0, (x0 + x1) / 2, (y0 + y1) / 2);
     if (x0 < minX) minX = x0;
     if (y0 < minY) minY = y0;
     if (x0 > maxX) maxX = x0;
     if (y0 > maxY) maxY = y0;
   }
-  d += 'Z';
+  path.closePath();
 
-  return { path: new Path2D(d), box: { minX, minY, maxX, maxY } };
+  return { path, box: { minX, minY, maxX, maxY } };
 }
 
 // ---------- Radierer ----------

@@ -190,8 +190,9 @@ ignorieren wir Fingerberührungen. Sehr große Berührungen (> 45 px) sind auch 
 **4. Wenig Verzögerung.**
 - `desynchronized: true` beim Canvas: Der Browser darf das Bild sofort zeigen.
 - `getCoalescedEvents()`: Der S Pen misst öfter, als der Bildschirm Bilder zeigt. So bekommen wir alle Zwischenpunkte.
-- `getPredictedEvents()`: Der Browser sagt voraus, wo der Stift gleich ist. Diese Punkte zeigen wir kurz mit an.
-- Fertige Striche liegen in einem unsichtbaren Zwischenbild. Beim Schreiben wird nur das kleine Stück neu gemalt, wo sich etwas ändert.
+- `pointerrawupdate`: kommt sofort bei jedem neuen Stiftpunkt (nicht erst zum nächsten Bild) – die Linie ist schneller unter der Spitze.
+- Keine vorhergesagten Punkte (`getPredictedEvents()`) mehr: Sie haben das Strichende kurz zu weit gemalt und dann wieder zurückgenommen – das sah zuckelig aus.
+- Fertige Striche liegen in einem unsichtbaren Zwischenbild. Beim Schreiben wird nur das kleine Stück am Ende des Strichs neu gemalt (`tailBox` in ink.js) – auch bei riesigen Strichen. Alles davor ändert sich nie mehr.
 
 **5. Seiten-Koordinaten.** Das Blatt ist immer 1000 Einheiten breit, egal wie weit du zoomst.
 Striche werden in diesen Einheiten gespeichert. `view.js` rechnet um: `bildschirm = seite * scale + offset`.
