@@ -2231,7 +2231,7 @@ body {
 }
 
 /* Tablet hochkant / schmal: Seitenleiste als Schublade */
-@media (max-width: 720px) {
+@media (max-width: 820px) {
   .home {
     grid-template-columns: 1fr;
   }
@@ -3424,7 +3424,7 @@ body {
   stroke-linejoin: round;
 }
 
-@media (max-width: 720px) {
+@media (max-width: 820px) {
   .h-chip.h-pdf span {
     display: none;
   }
@@ -6695,4 +6695,40 @@ textarea.hw-text {
 .hw-chip.td-subj.on {
   background: var(--c);
   border-color: var(--c);
+}
+
+/* ---------- Splitscreen (siehe split.js, splitpane.js) ---------- */
+html:not(.in-pane) .sb-btn[data-act='send'] {
+  display: none;
+}
+/* Auswahl an den Rand zur anderen Notiz gezogen: leuchtender Streifen zeigt "hier loslassen" */
+html.in-pane.drop-edge body::after {
+  content: 'Loslassen: in die andere Notiz';
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  width: 34px;
+  z-index: 60;
+  pointer-events: none;
+  background: linear-gradient(to var(--edge-dir, right), transparent, color-mix(in srgb, var(--accent, #5b5bd6) 55%, transparent));
+  writing-mode: vertical-rl;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+  font-size: 13px;
+  color: #fff;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+}
+html.in-pane.pane-L.drop-edge body::after {
+  right: 0;
+  --edge-dir: right;
+}
+html.in-pane.pane-R.drop-edge body::after {
+  left: 0;
+  --edge-dir: left;
+}
+.topbar .icon-btn.on {
+  color: var(--accent);
+  background: var(--accent-soft);
 }

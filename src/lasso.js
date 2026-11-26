@@ -39,6 +39,7 @@ const ICON = {
   totext: '<svg viewBox="0 0 24 24"><path d="M3.5 12.5c1.6-3.4 3.2-3.4 4.2-1s2.4 2.6 4-1"/><path d="M14.5 7h6M17.5 7v9.5"/><path d="m6 16.5 2.5 2.5L13 14.5" stroke-width="1.6"/></svg>',
   cut: '<svg viewBox="0 0 24 24"><circle cx="6.5" cy="17.5" r="2.8"/><circle cx="17.5" cy="17.5" r="2.8"/><path d="M8.6 15.6 18 4M15.4 15.6 6 4"/></svg>',
   copy: '<svg viewBox="0 0 24 24"><rect x="8.5" y="8.5" width="11" height="11" rx="2.2"/><path d="M15.5 8.5V6.7a2.2 2.2 0 0 0-2.2-2.2H6.7a2.2 2.2 0 0 0-2.2 2.2v6.6a2.2 2.2 0 0 0 2.2 2.2h1.8"/></svg>',
+  send: '<svg viewBox="0 0 24 24"><rect x="3" y="4.5" width="18" height="15" rx="2.5"/><path d="M12 4.5v15"/><path d="M5.5 12h9.5m-2.5-2.5L15 12l-2.5 2.5"/></svg>',
   paste: '<svg viewBox="0 0 24 24"><path d="M9 4.5h6v2.5H9z"/><path d="M15 5.5h1.8A2.2 2.2 0 0 1 19 7.7v11.1a2.2 2.2 0 0 1-2.2 2.2H7.2A2.2 2.2 0 0 1 5 18.8V7.7a2.2 2.2 0 0 1 2.2-2.2H9"/></svg>',
   duplicate: '<svg viewBox="0 0 24 24"><rect x="8.5" y="8.5" width="11" height="11" rx="2.2"/><path d="M14 11.5v5M11.5 14h5M15.5 8.5V6.7a2.2 2.2 0 0 0-2.2-2.2H6.7a2.2 2.2 0 0 0-2.2 2.2v6.6a2.2 2.2 0 0 0 2.2 2.2h1.8"/></svg>',
   trash: '<svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V4.5h6V7M6.5 7l1 13h9l1-13M10 11v5.5M14 11v5.5"/></svg>',
@@ -49,7 +50,7 @@ const ICON = {
   rotate: '<svg viewBox="0 0 24 24"><path d="M19 12a7 7 0 1 1-2.1-5"/><path d="M17.5 3.5v4h-4"/></svg>',
 };
 
-export function setupLasso({ stage, view, doc, renderer, tools, commit, newZ, currentIndex, toast, onEditImage, onConvert }) {
+export function setupLasso({ stage, view, doc, renderer, tools, commit, newZ, currentIndex, toast, onEditImage, onConvert, transferSide = () => null, onTransfer = null }) {
   // ---------- Bausteine auf dem Bildschirm ----------
   const layer = document.createElement('div');
   layer.className = 'sel-layer';
@@ -75,6 +76,7 @@ export function setupLasso({ stage, view, doc, renderer, tools, commit, newZ, cu
     ['totext', 'Zu Text'],
     ['cut', 'Ausschneiden'],
     ['copy', 'Kopieren'],
+    ['send', 'Zur anderen Notiz'],
     ['duplicate', 'Duplizieren'],
     ['color', 'Farbe'],
     ['front', 'Nach vorne'],
@@ -372,6 +374,8 @@ export function setupLasso({ stage, view, doc, renderer, tools, commit, newZ, cu
     computeDrag(p);
     showPreview();
     place();
+    drag.last = [e.clientX, e.clientY];
+    showEdge(drag.handle === 'move' && atEdge(e.clientX));
   });
 
   box.addEventListener('pointerup', (e) => {
@@ -459,16 +463,51 @@ export function setupLasso({ stage, view, doc, renderer, tools, commit, newZ, cu
     });
   }
 
+  // Splitscreen: Auswahl an den Rand zur anderen Notiz gezogen (oder darüber hinaus)?
+  const EDGE = 28;
+  function atEdge(x) {
+    const side = transferSide();
+    if (!side || !onTransfer) return false;
+    return side === 'right' ? x > window.innerWidth - EDGE : x < EDGE;
+  }
+  let edgeShown = false;
+  function showEdge(on) {
+    if (on === edgeShown) return;
+    edgeShown = on;
+    document.documentElement.classList.toggle('drop-edge', on);
+  }
+
   function endDrag(e, cancel = false) {
     const d = drag;
     drag = null;
     angleLabel.hidden = true;
+    showEdge(false);
     if (!sel) return;
     for (const s of sel.items) delete s.hidden;
     try {
       if (e) box.releasePointerCapture(e.pointerId);
     } catch {
       /* egal */
+    }
+    // In die andere Notiz gezogen: dort einfügen (Kopie), hier bleibt alles, wie es war
+    const endX = e && Number.isFinite(e.clientX) && e.type !== 'pointercancel' ? e.clientX : d.last?.[0];
+    if (!cancel && d.shown && d.handle === 'move' && Number.isFinite(endX) && atEdge(endX)) {
+      const endY = e?.clientY ?? d.last?.[1];
+      // Knapp vor dem Rand losgelassen: nicht wissen wir, wohin genau -> in die Mitte der anderen Notiz
+      const inside = endX >= 0 && endX <= window.innerWidth;
+      renderer.setOverlay(null);
+      renderer.renderNow();
+      onTransfer(sel.items, { ...sel.frame }, inside ? null : [endX, endY]);
+      place();
+      return;
+    }
+    if (cancel && d.shown && d.handle === 'move' && Number.isFinite(d.last?.[0]) && atEdge(d.last[0])) {
+      // Manche Geräte brechen den Strich ab, wenn er das Fenster verlässt: trotzdem rüberschicken
+      renderer.setOverlay(null);
+      renderer.renderNow();
+      onTransfer(sel.items, { ...sel.frame }, null);
+      place();
+      return;
     }
     if (cancel || !d.shown || isIdentity(d.m)) {
       renderer.setOverlay(null);
@@ -535,6 +574,10 @@ export function setupLasso({ stage, view, doc, renderer, tools, commit, newZ, cu
       const item = sel.items[0];
       clear();
       onEditImage?.(page, item);
+      return;
+    }
+    if (act === 'send') {
+      onTransfer?.(sel.items, { ...sel.frame }, null);
       return;
     }
     if (act === 'copy') {
@@ -663,8 +706,9 @@ export function setupLasso({ stage, view, doc, renderer, tools, commit, newZ, cu
   });
 
   // Einfügen: an Stelle "at" (Dokument-Punkt, Mitte der Einfügung) oder etwas versetzt zum Original
-  function paste(at = null) {
-    if (!clipboard) return false;
+  function paste(at = null, clip = clipboard) {
+    if (!clip) return false;
+    const clipboard = clip;
     let index;
     let dx;
     let dy;
@@ -735,7 +779,15 @@ export function setupLasso({ stage, view, doc, renderer, tools, commit, newZ, cu
       clear();
     },
     place,
-    paste,
+    paste: (at = null) => paste(at),
+    // Aus der anderen Notiz (Splitscreen) Herübergezogenes einfügen; at = Dokument-Punkt oder null (Bildschirmmitte)
+    dropIn(items, frame, at = null) {
+      hidePaste();
+      drawing = null;
+      clear();
+      if (!at) at = view.toPage(view.width / 2, view.height / 2);
+      return paste(at, { items, frame });
+    },
     run,
     // Tastatur am PC: Entf, Strg+C/X/V/D, Esc
     onKey(e) {

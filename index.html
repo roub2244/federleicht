@@ -159,6 +159,10 @@
         <button id="btn-toc" class="icon-btn" title="Inhaltsverzeichnis und Hausaufgaben der Notiz" aria-label="Inhaltsverzeichnis">
           <svg viewBox="0 0 24 24"><path d="M9 6h11M9 12h11M9 18h11" /><path d="M4.5 6h.01M4.5 12h.01M4.5 18h.01" /></svg>
         </button>
+        <!-- Zwei Notizen nebeneinander (siehe split.js) -->
+        <button id="btn-split" class="icon-btn" title="Zwei Notizen nebeneinander" aria-label="Zwei Notizen nebeneinander">
+          <svg viewBox="0 0 24 24"><rect x="3" y="4.5" width="18" height="15" rx="2.5" /><path d="M12 4.5v15" /><path d="M6 9h3M6 12h3M15 9h3M15 12h3" stroke-width="1.4" /></svg>
+        </button>
         <!-- Seiten: neue Seite, Vorlage, Übersicht (siehe pages.js) -->
         <button id="btn-add-page" class="icon-btn" title="Seite hinzufügen" aria-label="Seite hinzufügen">
           <svg viewBox="0 0 24 24"><rect x="5" y="3" width="14" height="18" rx="2.5" /><path d="M12 9v6M9 12h6" /></svg>
@@ -211,6 +215,6 @@
     <!-- Startbildschirm mit allen Notizen und Ordnern (wird von home.js gefüllt) -->
     <div id="home" class="home" hidden></div>
 
-    <script type="module" src="/src/main.js"></script>
+    <script type="module" src="/src/boot.js"></script>
   </body>
 </html>

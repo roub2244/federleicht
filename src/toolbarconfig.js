@@ -53,6 +53,7 @@ export const SECTIONS = [
       { id: 'share', name: 'Teilen und Exportieren', sel: '#btn-share' },
       { id: 'homework', name: 'Hausaufgabe markieren', sel: '#btn-homework' },
       { id: 'toc', name: 'Inhaltsverzeichnis', sel: '#btn-toc' },
+      { id: 'split', name: 'Zwei Notizen nebeneinander', sel: '#btn-split' },
       { id: 'addpage', name: 'Seite hinzufügen', sel: '#btn-add-page', off: true },
       { id: 'template', name: 'Seitenvorlage', sel: '#btn-template', off: true },
       { id: 'pages', name: 'Seitenübersicht', sel: '#btn-pages' },
