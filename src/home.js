@@ -19,7 +19,9 @@ import * as store from './store.js';
 import { askText, confirmBox, chooseFrom, toast, esc } from './dialog.js';
 import { paint } from './paint.js';
 import { drawThumbnail, DEFAULT_TEMPLATE } from './templates.js';
-import { FOLDER_COLORS, badge, folderDialog, parentOf, descendants, pathOf, childrenOf, flatTree } from './folders.js';
+import { FOLDER_COLORS, badge, folderDialog, parentOf, descendants, pathOf, childrenOf, flatTree, guessIcon } from './folders.js';
+import { setupToday } from './today.js';
+import { collectHomework } from './homework.js';
 import * as lock from './lock.js';
 import { needsIndex, indexNote, queryWords, searchNote, matchText, norm } from './searchindex.js';
 
@@ -63,6 +65,7 @@ const ICON = {
   ink: '<svg viewBox="0 0 24 24"><path d="M3 15c1.4-3.6 2.8-3.6 3.7-1s2.1 2.8 3.5-1 2.4-3.4 3.4-.2 2.2 2.6 3.6-.5"/></svg>',
   text: '<svg viewBox="0 0 24 24"><path d="M5 7V5h14v2M12 5v14M9 19h6"/></svg>',
   key: '<svg viewBox="0 0 24 24"><circle cx="8" cy="15" r="4"/><path d="m11 12 8.5-8.5M16 7l2.5 2.5M14 9l2 2"/></svg>',
+  today: '<svg viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="15.5" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/><path d="M8 14h3v3H8z"/></svg>',
   timer: '<svg viewBox="0 0 24 24"><circle cx="12" cy="13" r="7.5"/><path d="M12 9v4l2.5 2M9.5 3h5"/></svg>',
 };
 
@@ -72,7 +75,13 @@ export function setupHome(api) {
   let notes = [];
   let folders = [];
   // Was wird gerade angezeigt? { kind: 'all' | 'fav' | 'trash' | 'folder', id }
-  let filter = readJSON('homeFilter', { kind: 'all' });
+  let filter = readJSON('homeFilter', { kind: 'today' });
+  // Neu: Startseite "Heute" (Stundenplan) – beim ersten Mal nach dem Update direkt dorthin
+  if (!readJSON('todayIntro', false)) {
+    filter = { kind: 'today' };
+    saveJSON('todayIntro', true);
+    saveJSON('homeFilter', filter);
+  }
   let sort = readJSON('homeSort', 'updated');
   let search = '';
   let drawerOpen = false;
@@ -80,6 +89,19 @@ export function setupHome(api) {
   const expanded = new Set(readJSON('homeExpanded', []));    // aufgeklappte Ordner in der Seitenleiste
   const bitmaps = new Map(); // Vorschaubilder: Notiz-ID -> { key, bitmap }
   const indexer = { running: false, pending: 0, stop: false }; // Handschrift für die Suche lesen
+  // Startseite "Heute": Stundenplan, Hausaufgaben, Termine (siehe today.js)
+  const today = setupToday({
+    openNote: (id, focus) => api.openNote(id, focus),
+    openFolder: (id) => openFolder(id),
+    async createFolder(name, color) {
+      const folder = { id: store.uid(), name, color: color || FOLDER_COLORS[0], icon: guessIcon(name) || 'folder', parentId: null, created: Date.now() };
+      await store.putFolder(folder);
+      folders.push(folder);
+      return folder;
+    },
+    saveNoteMeta: (note) => store.putNote(note),
+    refresh: () => render(),
+  });
 
   // Gesperrt? (Notiz selbst oder ein Ordner darüber) – und gerade nicht entsperrt
   const lockedNote = (n) => lock.isNoteLocked(n, folders);
@@ -191,6 +213,9 @@ export function setupHome(api) {
     renderNav();
     renderLockButton();
     if (search.trim() && filter.kind !== 'trash') return renderSearch();
+    root.classList.toggle('today-view', filter.kind === 'today');
+    if (filter.kind === 'today') return renderToday();
+    today.stopTicker();
     const list = visibleNotes();
     const inFolder = filter.kind === 'folder';
     root.querySelector('.h-title').textContent = titleOfFilter();
@@ -230,6 +255,22 @@ export function setupHome(api) {
     empty.hidden = list.length > 0 || (showFolders && sub.length > 0);
     if (!empty.hidden) empty.innerHTML = emptyText();
     drawThumbs(list);
+  }
+
+  function renderToday() {
+    root.querySelector('.h-title').textContent = 'Heute';
+    root.querySelector('.h-title-badge').innerHTML = '';
+    root.querySelector('.h-crumbs').innerHTML = '';
+    root.querySelector('.h-count').textContent = '';
+    root.querySelector('[data-act="empty-trash"]').hidden = true;
+    root.querySelector('[data-act="new"]').hidden = false;
+    root.classList.toggle('drawer-open', drawerOpen);
+    const visible = live().filter((n) => !hiddenNote(n));
+    grid.innerHTML = today.html({ notes: visible, folders });
+    empty.hidden = true;
+    today.startTicker(() => {
+      if (!root.hidden && filter.kind === 'today' && !search.trim()) renderToday();
+    });
   }
 
   function folderTile(f) {
@@ -314,6 +355,7 @@ export function setupHome(api) {
         })
         .join('');
     nav.innerHTML = `
+      ${item('today', '', ICON.today, 'Heute', collectHomework(live()).filter((x) => !x.hw.done).length)}
       ${item('all', '', ICON.notes, 'Alle Notizen', live().length)}
       ${item('fav', '', ICON.star, 'Favoriten', count((n) => n.favorite))}
       <div class="h-sect"><span>Ordner</span><button class="h-sect-add" data-act="new-folder" aria-label="Neuer Ordner" title="Neuer Ordner">${ICON.plus}</button></div>
@@ -363,6 +405,7 @@ export function setupHome(api) {
   root.addEventListener('click', async (e) => {
     if (suppressClick) return;
     const t = e.target;
+    if (filter.kind === 'today' && t.closest('[data-td]') && (await today.click(e, { notes: live().filter((n) => !hiddenNote(n)), folders }))) return;
     const act = t.closest('[data-act]')?.dataset.act;
     if (act === 'drawer') {
       drawerOpen = !drawerOpen;
@@ -971,6 +1014,7 @@ export function setupHome(api) {
     },
     hide() {
       indexer.stop = true;
+      today.stopTicker();
       root.hidden = true;
       document.documentElement.classList.remove('home-open');
       closeMenu();

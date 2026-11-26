@@ -56,36 +56,48 @@ export async function indexNote(note, { stop = () => false, onProgress } = {}) {
       pages[page.id] = old[page.id];
       continue;
     }
-    const lines = [];
-    // Textfelder
-    for (const s of page.strokes) {
-      if (s.tool !== 'text' || !s.box) continue;
-      const t = plain(s).replace(/\s+/g, ' ').trim();
-      if (t) lines.push({ t, b: box(s.box), k: 'text' });
-    }
-    // Handschrift: in Zeilen teilen und lesen
-    const ink = page.strokes.filter((s) => s.tool === 'pen' && !s.shape && s.box && s.points?.length);
-    if (ink.length) {
-      const inkLines = splitLines(ink).filter((l) => l.strokes.length >= 2 || l.fit.maxX - l.fit.minX > l.fit.h * 1.5);
-      onProgress?.();
-      // Zeile für Zeile, damit wir zwischendurch aufhören können
-      for (const line of inkLines) {
-        if (stop()) return null;
-        const [text] = await recognizeLines([line]);
-        if (stop()) return null;
-        if (text && /[\p{L}\p{N}]/u.test(text)) {
-          const b = line.strokes.reduce(
-            (a, s) => [Math.min(a[0], s.box.minX), Math.min(a[1], s.box.minY), Math.max(a[2], s.box.maxX), Math.max(a[3], s.box.maxY)],
-            [Infinity, Infinity, -Infinity, -Infinity]
-          );
-          lines.push({ t: text, b: b.map(Math.round), k: 'ink' });
-        }
-      }
-    }
+    const lines = await readPage(page, stop, onProgress);
+    if (!lines) return null;
     pages[page.id] = { sig, lines };
   }
   return { v: VERSION, at: startedAt, pages };
 }
+
+// Eine Seite lesen: Textfelder + Handschrift Zeile für Zeile.
+// Antwort: [{ t, b: [x0, y0, x1, y1], k: 'ink' | 'text', h? }] (oder null, wenn abgebrochen)
+// Auch das Inhaltsverzeichnis (contents.js) liest damit die offene Notiz.
+export async function readPage(page, stop = () => false, onProgress) {
+  const lines = [];
+  // Textfelder
+  for (const s of page.strokes) {
+    if (s.tool !== 'text' || !s.box) continue;
+    const t = plain(s).replace(/\s+/g, ' ').trim();
+    if (t) lines.push({ t, b: box(s.box), k: 'text' });
+  }
+  // Handschrift: in Zeilen teilen und lesen
+  const ink = page.strokes.filter((s) => s.tool === 'pen' && !s.shape && s.box && s.points?.length);
+  if (ink.length) {
+    const inkLines = splitLines(ink).filter((l) => l.strokes.length >= 2 || l.fit.maxX - l.fit.minX > l.fit.h * 1.5);
+    onProgress?.();
+    // Zeile für Zeile, damit wir zwischendurch aufhören können
+    for (const line of inkLines) {
+      if (stop()) return null;
+      const [text] = await recognizeLines([line]);
+      if (stop()) return null;
+      if (text && /[\p{L}\p{N}]/u.test(text)) {
+        const b = line.strokes.reduce(
+          (a, s) => [Math.min(a[0], s.box.minX), Math.min(a[1], s.box.minY), Math.max(a[2], s.box.maxX), Math.max(a[3], s.box.maxY)],
+          [Infinity, Infinity, -Infinity, -Infinity]
+        );
+        lines.push({ t: text, b: b.map(Math.round), k: 'ink' });
+      }
+    }
+  }
+  return lines;
+}
+
+// Fingerabdruck von außen (Inhaltsverzeichnis: Seite schon gelesen?)
+export { signature as pageSignature };
 
 const box = (b) => [Math.round(b.minX), Math.round(b.minY), Math.round(b.maxX), Math.round(b.maxY)];
 
