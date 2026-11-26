@@ -135,6 +135,13 @@ export async function getBlob(id) {
   return row?.blob || null;
 }
 
+export async function deleteBlob(id) {
+  const db = await openDB();
+  const tx = db.transaction('blobs', 'readwrite');
+  tx.objectStore('blobs').delete(id);
+  return finished(tx);
+}
+
 // Dateien aufräumen, die keine Notiz mehr braucht (auch nicht im Papierkorb).
 // Jede Notiz merkt sich ihre Dateien in note.blobIds (siehe main.js, writeNote).
 export async function cleanupBlobs() {
@@ -144,7 +151,8 @@ export async function cleanupBlobs() {
   const keep = new Set(notes.flatMap((n) => n.blobIds || []));
   const blobs = tx.objectStore('blobs');
   const ids = await done(blobs.getAllKeys());
-  const gone = ids.filter((id) => !keep.has(id));
+  // "sys-…" gehört der App selbst (z. B. deine gelernte Handschrift), nie aufräumen
+  const gone = ids.filter((id) => !keep.has(id) && !String(id).startsWith('sys-'));
   for (const id of gone) blobs.delete(id);
   await finished(tx);
   return gone.length;
