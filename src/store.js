@@ -293,7 +293,7 @@ function fromBase64(text) {
   return new Float32Array(base64ToBytes(text).buffer);
 }
 
-const EXTRA_KEYS = ['federleicht.timetable', 'federleicht.tasks', 'federleicht.prefs'];
+const EXTRA_KEYS = ['federleicht.timetable', 'federleicht.tasks', 'federleicht.prefs', 'federleicht.typing'];
 
 export async function exportAll() {
   const db = await openDB();

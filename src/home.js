@@ -21,9 +21,9 @@ import { paint } from './paint.js';
 import { drawThumbnail, DEFAULT_TEMPLATE } from './templates.js';
 import { FOLDER_COLORS, badge, folderDialog, parentOf, descendants, pathOf, childrenOf, flatTree, guessIcon } from './folders.js';
 import { setupToday } from './today.js';
+import { setupTyping } from './typing.js';
 import { openSettings } from './settings.js';
 import { getPrefs, onPrefsChange } from './theme.js';
-import { collectHomework } from './homework.js';
 import * as lock from './lock.js';
 import { needsIndex, indexNote, queryWords, searchNote, matchText, norm } from './searchindex.js';
 
@@ -68,6 +68,7 @@ const ICON = {
   ink: '<svg viewBox="0 0 24 24"><path d="M3 15c1.4-3.6 2.8-3.6 3.7-1s2.1 2.8 3.5-1 2.4-3.4 3.4-.2 2.2 2.6 3.6-.5"/></svg>',
   text: '<svg viewBox="0 0 24 24"><path d="M5 7V5h14v2M12 5v14M9 19h6"/></svg>',
   key: '<svg viewBox="0 0 24 24"><circle cx="8" cy="15" r="4"/><path d="m11 12 8.5-8.5M16 7l2.5 2.5M14 9l2 2"/></svg>',
+  keys: '<svg viewBox="0 0 24 24"><rect x="2.5" y="6" width="19" height="12" rx="2.5"/><path d="M6 9.5h.01M9 9.5h.01M12 9.5h.01M15 9.5h.01M18 9.5h.01M6 12.5h.01M18 12.5h.01M8.5 15h7"/></svg>',
   today: '<svg viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="15.5" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/><path d="M8 14h3v3H8z"/></svg>',
   timer: '<svg viewBox="0 0 24 24"><circle cx="12" cy="13" r="7.5"/><path d="M12 9v4l2.5 2M9.5 3h5"/></svg>',
 };
@@ -90,6 +91,7 @@ export function setupHome(api) {
   if (startPref === 'today') filter = { kind: 'today' };
   else if (startPref === 'all' && filter.kind === 'today') filter = { kind: 'all' };
   let sort = readJSON('homeSort', 'updated');
+  let typing = null; // Tipp-Trainer (siehe typing.js), wird erst beim ersten Öffnen gebaut
   let search = '';
   let drawerOpen = false;
   let viewMode = readJSON('homeView', 'grid');                // 'grid' | 'list'
@@ -227,8 +229,11 @@ export function setupHome(api) {
     renderLockButton();
     if (search.trim() && filter.kind !== 'trash') return renderSearch();
     root.classList.toggle('today-view', filter.kind === 'today');
+    root.classList.toggle('typing-view', filter.kind === 'typing');
     if (filter.kind === 'today') return renderToday();
     today.stopTicker();
+    if (filter.kind === 'typing') return renderTyping();
+    typing?.leave();
     const list = visibleNotes();
     const inFolder = filter.kind === 'folder';
     root.querySelector('.h-title').textContent = titleOfFilter();
@@ -268,6 +273,18 @@ export function setupHome(api) {
     empty.hidden = list.length > 0 || (showFolders && sub.length > 0);
     if (!empty.hidden) empty.innerHTML = emptyText();
     drawThumbs(list);
+  }
+
+  function renderTyping() {
+    root.querySelector('.h-title').textContent = 'Tippen üben';
+    root.querySelector('.h-title-badge').innerHTML = '';
+    root.querySelector('.h-crumbs').innerHTML = '';
+    root.querySelector('.h-count').textContent = '';
+    root.querySelector('[data-act="empty-trash"]').hidden = true;
+    root.classList.toggle('drawer-open', drawerOpen);
+    typing = typing || setupTyping();
+    typing.mount(grid);
+    empty.hidden = true;
   }
 
   function renderToday() {
@@ -368,9 +385,10 @@ export function setupHome(api) {
         })
         .join('');
     nav.innerHTML = `
-      ${item('today', '', ICON.today, 'Heute', collectHomework(live()).filter((x) => !x.hw.done).length)}
+      ${item('today', '', ICON.today, 'Heute', '')}
       ${item('all', '', ICON.notes, 'Alle Notizen', live().length)}
       ${item('fav', '', ICON.star, 'Favoriten', count((n) => n.favorite))}
+      ${item('typing', '', ICON.keys, 'Tippen üben', '')}
       <div class="h-sect"><span>Ordner</span><button class="h-sect-add" data-act="new-folder" aria-label="Neuer Ordner" title="Neuer Ordner">${ICON.plus}</button></div>
       ${tree(null, 0)}
       ${folders.length ? '' : '<div class="h-hint">Ordner für deine Fächer, z. B. Mathe, Bio, Deutsch – mit Farbe und Symbol</div>'}

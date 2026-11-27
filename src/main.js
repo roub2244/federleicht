@@ -2495,7 +2495,24 @@ boot();
 // ---------- Offline-Fähigkeit ----------
 // Den Service Worker nur in der fertigen Version anmelden (nicht beim Entwickeln)
 if ('serviceWorker' in navigator && import.meta.env.PROD && !PANE) {
-  navigator.serviceWorker.register('./sw.js').catch((err) => console.warn('Kein Service Worker:', err));
+  // updateViaCache 'none': sw.js nie aus dem HTTP-Cache holen, sonst kommt eine neue Version zu spät an
+  navigator.serviceWorker
+    .register('./sw.js', { updateViaCache: 'none' })
+    .then((reg) => {
+      // Die installierte App wird oft nur aus dem Hintergrund geholt (ohne neu zu laden):
+      // dann selbst nach einer neuen Version fragen
+      const check = () => reg.update().catch(() => {});
+      document.addEventListener('visibilitychange', () => document.visibilityState === 'visible' && check());
+      setInterval(check, 30 * 60 * 1000);
+    })
+    .catch((err) => console.warn('Kein Service Worker:', err));
+  // Neue Version hat übernommen -> neu laden (auf der Startseite sofort, sonst auf Nachfrage)
+  let hadController = Boolean(navigator.serviceWorker.controller);
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!hadController) return (hadController = true);
+    if (home.open && !document.querySelector('.dlg-back')) location.reload();
+    else toast('Neue Version von Federleicht ist da', { label: 'Neu laden', run: () => location.reload() });
+  });
 }
 
 // Kleine Helfer für gespeicherte Einstellungen (localStorage kann manchmal fehlen)

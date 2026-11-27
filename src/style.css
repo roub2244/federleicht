@@ -6415,6 +6415,582 @@ textarea.hw-text {
   color: #e03131;
 }
 
+/* ---------- Tipp-Trainer (typing.js) ---------- */
+.typing-view [data-act='sort'],
+.typing-view [data-act='view'],
+.typing-view .h-pdf,
+.typing-view .h-fab {
+  display: none !important;
+}
+.ty {
+  --card: var(--bar);
+  --card-line: color-mix(in srgb, var(--text) 8%, transparent);
+  --ok: color-mix(in srgb, var(--text) 92%, transparent);
+  --todo: color-mix(in srgb, var(--text) 38%, transparent);
+  --bad: #f03e3e;
+  max-width: 1040px;
+  margin: 0 auto;
+  padding: 6px 32px 80px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.ty svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.9;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  flex: none;
+}
+.ty button {
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+.ty-top {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.ty-pick {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-right: auto;
+}
+.ty-chip {
+  height: 38px;
+  padding: 0 16px;
+  border: 1px solid var(--card-line);
+  border-radius: 19px;
+  background: var(--card);
+  font-weight: 650 !important;
+  font-size: 14.5px !important;
+}
+.ty-chip.on {
+  border-color: transparent;
+  background: var(--accent);
+  color: #fff !important;
+}
+.ty-chip.add {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  padding: 0;
+}
+.ty-seg {
+  display: inline-flex;
+  padding: 3px;
+  border-radius: 14px;
+  background: var(--chip);
+}
+.ty-seg button {
+  height: 32px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 11px;
+  background: none;
+  font-size: 13.5px !important;
+  font-weight: 650 !important;
+  color: var(--muted) !important;
+}
+.ty-seg button.on {
+  background: var(--card);
+  color: var(--text) !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+}
+.ty-del {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border: 0;
+  border-radius: 19px;
+  background: var(--chip);
+  color: var(--muted) !important;
+}
+.ty-live {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 8px 30px;
+  padding: 0 4px;
+}
+.ty-num {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.ty-num b {
+  font-size: 26px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+.ty-num.big b {
+  font-size: 44px;
+  line-height: 1;
+  color: var(--accent);
+}
+.ty-num small {
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--muted);
+}
+.ty-best {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  padding: 6px 12px;
+  border-radius: 99px;
+  background: color-mix(in srgb, #f59f00 16%, transparent);
+  color: color-mix(in srgb, #f59f00 80%, var(--text));
+  font-size: 13.5px;
+  font-weight: 650;
+}
+.ty-box {
+  position: relative;
+  padding: 18px 24px 26px;
+  border: 1.5px solid var(--card-line);
+  border-radius: 22px;
+  background: var(--card);
+  overflow: hidden;
+  font-size: 24px;
+  cursor: text;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.ty-box.focus {
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 14%, transparent);
+}
+.ty-view {
+  height: calc(3 * 1.9em);
+  overflow: hidden;
+}
+.ty-text {
+  position: relative;
+  line-height: 1.9;
+  font-family: ui-monospace, 'SF Mono', 'Roboto Mono', Menlo, Consolas, monospace;
+  letter-spacing: 0.01em;
+  color: var(--todo);
+  transition: transform 0.18s ease-out;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.ty-w {
+  display: inline-block;
+  white-space: nowrap;
+}
+.ty-text i {
+  position: relative;
+  font-style: normal;
+}
+.ty-sp {
+  white-space: normal; /* am Zeilenende verschwindet das Leerzeichen, keine Einrückung */
+}
+.ty-w.wrong {
+  text-decoration: underline wavy color-mix(in srgb, var(--bad) 70%, transparent);
+  text-underline-offset: 6px;
+  text-decoration-thickness: 1.5px;
+}
+.ty-text i.miss {
+  color: color-mix(in srgb, var(--bad) 55%, var(--todo));
+}
+.ty-text i.extra {
+  color: color-mix(in srgb, var(--bad) 75%, #000 10%);
+  opacity: 0.8;
+}
+.ty-text i.end {
+  display: inline-block;
+  width: 0;
+}
+.ty-text i.ok {
+  color: var(--ok);
+}
+.ty-text i.bad {
+  color: var(--bad);
+  background: color-mix(in srgb, var(--bad) 16%, transparent);
+  border-radius: 3px;
+}
+.ty-text i.cur::before {
+  content: '';
+  position: absolute;
+  left: -1px;
+  top: 0.25em;
+  bottom: 0.25em;
+  width: 2.5px;
+  border-radius: 2px;
+  background: var(--accent);
+  animation: ty-blink 1s steps(1) infinite;
+}
+.ty-box:not(.focus) .ty-text i.cur::before {
+  opacity: 0.35;
+  animation: none;
+}
+@keyframes ty-blink {
+  50% {
+    opacity: 0.2;
+  }
+}
+.ty-hint {
+  position: absolute;
+  left: 24px;
+  right: 24px;
+  bottom: 6px;
+  font-size: 13px;
+  color: var(--muted);
+  transition: opacity 0.2s;
+}
+.ty-hint.gone {
+  opacity: 0;
+}
+.ty-input {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  border: 0;
+  opacity: 0;
+  resize: none;
+  font-size: 16px;
+}
+.ty-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.ty-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 44px;
+  padding: 0 18px;
+  border: 1px solid var(--card-line);
+  border-radius: 22px;
+  background: var(--card);
+  font-weight: 650 !important;
+}
+.ty-btn.primary {
+  border-color: transparent;
+  background: var(--accent-grad);
+  color: #fff !important;
+  box-shadow: 0 6px 18px color-mix(in srgb, var(--accent) 30%, transparent);
+}
+.ty-btn kbd {
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: var(--chip);
+  font: 600 11.5px system-ui, sans-serif;
+  opacity: 0.8;
+}
+.ty-btn.primary kbd {
+  background: rgba(255, 255, 255, 0.22);
+}
+
+.ty-meta {
+  align-self: center;
+  margin-left: auto;
+  font-size: 13px;
+  color: var(--muted);
+}
+.ty-parts button {
+  min-width: 34px;
+  padding: 0 10px;
+}
+
+/* Ergebnis */
+.ty-res {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 22px 26px 24px;
+  border: 1px solid var(--card-line);
+  border-radius: 26px;
+  background: var(--card);
+}
+.ty-res-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.ty-res-kicker {
+  margin-right: auto;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.ty-record {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 99px;
+  background: linear-gradient(135deg, #fcc419, #f08c00);
+  color: #fff;
+  font-size: 13.5px;
+  font-weight: 750;
+}
+.ty-res-main {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 28px;
+}
+.ty-res-wpm {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 170px;
+  height: 170px;
+  border-radius: 50%;
+  background: var(--accent-grad);
+  color: #fff;
+  box-shadow: 0 12px 30px color-mix(in srgb, var(--accent) 35%, transparent);
+}
+.ty-res-wpm b {
+  font-size: 64px;
+  font-weight: 850;
+  line-height: 1;
+  letter-spacing: -0.03em;
+}
+.ty-res-wpm span {
+  font-size: 15px;
+  font-weight: 750;
+  letter-spacing: 0.1em;
+  opacity: 0.9;
+}
+.ty-res-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+.ty-res-grid div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: var(--chip);
+}
+.ty-res-grid b {
+  font-size: 24px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+.ty-res-grid small,
+.ty-sub {
+  font-size: 12.5px;
+  font-weight: 650;
+  color: var(--muted);
+}
+.ty-sub {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.ty-legend {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: auto;
+}
+.ty-legend i {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-left: 8px;
+  border-radius: 3px;
+}
+.ty-legend .a {
+  background: var(--accent);
+}
+.ty-legend .b {
+  background: color-mix(in srgb, var(--text) 30%, transparent);
+}
+.ty-legend .c {
+  border-radius: 50%;
+  background: var(--bad);
+}
+.ty-chart svg {
+  display: block;
+  width: 100%;
+  height: 130px;
+  overflow: visible;
+}
+.ty-chart path {
+  fill: none;
+  stroke-width: 2.5;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+.ty-chart .wpm {
+  stroke: var(--accent);
+  stroke-width: 3;
+}
+.ty-chart .raw {
+  stroke: color-mix(in srgb, var(--text) 30%, transparent);
+  stroke-dasharray: 5 5;
+}
+.ty-chart .area {
+  fill: color-mix(in srgb, var(--accent) 14%, transparent);
+  stroke: none;
+}
+.ty-chart .err circle {
+  fill: var(--bad);
+}
+.ty-miss {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 16px;
+}
+.ty-keys,
+.ty-words {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.ty-key {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 46px;
+  padding: 6px 8px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--bad) 12%, transparent);
+  box-shadow: inset 0 -3px 0 color-mix(in srgb, var(--bad) 25%, transparent);
+}
+.ty-key b {
+  font: 700 20px ui-monospace, 'Roboto Mono', monospace;
+}
+.ty-key small {
+  font-size: 11.5px;
+  color: var(--muted);
+}
+.ty-words span {
+  padding: 6px 12px;
+  border-radius: 10px;
+  background: var(--chip);
+  font: 600 15px ui-monospace, 'Roboto Mono', monospace;
+}
+.ty-perfect {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 650;
+}
+
+/* Verlauf */
+.ty-hist {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 6px;
+}
+.ty-hist-stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr)) minmax(0, 1.4fr);
+  gap: 10px;
+}
+.ty-hist-stats > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px 14px;
+  border: 1px solid var(--card-line);
+  border-radius: 18px;
+  background: var(--card);
+}
+.ty-hist-stats b {
+  font-size: 22px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+.ty-hist-stats small {
+  font-size: 12px;
+  color: var(--muted);
+}
+.ty-spark {
+  width: 100%;
+  height: 100%;
+  min-height: 60px;
+  padding: 10px 12px;
+  border: 1px solid var(--card-line);
+  border-radius: 18px;
+  background: var(--card);
+  box-sizing: border-box;
+}
+.ty-spark path {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2.5;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+.ty-runs {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 8px;
+}
+.ty-run {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: baseline;
+  column-gap: 6px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: var(--chip);
+}
+.ty-run b {
+  font-size: 20px;
+  font-weight: 800;
+}
+.ty-run span {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--muted);
+}
+.ty-run small {
+  grid-column: 1 / -1;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+@media (max-width: 760px) {
+  .ty {
+    padding: 4px 14px 80px;
+  }
+  .ty-box {
+    font-size: 19px;
+    padding: 14px 16px;
+  }
+  .ty-res-main {
+    grid-template-columns: minmax(0, 1fr);
+    justify-items: center;
+  }
+  .ty-res-grid {
+    width: 100%;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .ty-hist-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .ty-spark {
+    grid-column: 1 / -1;
+  }
+}
+
 /* ---------- Startseite "Heute" (today.js) ---------- */
 .today-view [data-act='sort'],
 .today-view [data-act='view'],
@@ -7440,6 +8016,12 @@ button.ls-item {
 }
 
 /* ---------- Einstellungen ---------- */
+.st-ver {
+  margin: 10px 0 0;
+  text-align: center;
+  font-size: 12px;
+  color: var(--muted);
+}
 .st h3 {
   margin: 18px 2px 8px;
   font-size: 13px;
