@@ -15,7 +15,8 @@ self.addEventListener('install', (event) => {
   event.waitUntil(
     caches
       .open(CACHE_NAME)
-      .then((cache) => cache.addAll(FILES))
+      // cache: 'reload' = wirklich vom Server holen, nicht aus dem Browser-Cache (sonst evtl. alte index.html)
+      .then((cache) => cache.addAll(FILES.map((f) => new Request(f, { cache: 'reload' }))))
       .then(() => self.skipWaiting()) // neue Version sofort übernehmen
   );
 });

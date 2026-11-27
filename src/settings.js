@@ -92,7 +92,17 @@ export function openSettings({ onChange } = {}) {
             : ''
         }
       </section>
-      <button class="st-reset" data-st="reset">Einstellungen zurücksetzen</button>`;
+      <button class="st-reset" data-st="reset">Einstellungen zurücksetzen</button>
+      <p class="st-ver"></p>`;
+    // Welche Version läuft? (Name des Caches vom Service Worker, siehe sw.js)
+    window.caches
+      ?.keys()
+      .then((names) => {
+        const v = names.find((n) => n.startsWith('federleicht-'))?.slice(12);
+        const out = card.querySelector('.st-ver');
+        if (out) out.textContent = `Federleicht · Version ${v || 'Entwicklung'}`;
+      })
+      .catch(() => {});
   };
 
   return openDialog({
