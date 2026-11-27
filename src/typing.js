@@ -274,12 +274,36 @@ export function setupTyping() {
     }
   }
 
+  // Eingabe aufräumen. Zeilenumbruch = Leerzeichen, keine doppelten Leerzeichen.
+  // Apostroph/Anführungszeichen-Varianten (´ ` ’ „ “) zählen wie ' und ".
+  // Manche Tastaturen (Akzent-Taste als "tote Taste", Samsung-Tastatur) setzen nach dem
+  // Apostroph ein Leerzeichen dazu: "husband' s" -> wieder zusammenziehen, sonst wäre
+  // ab da jedes Wort um eins verschoben und alles rot.
+  function normalize(raw, tw) {
+    const v = raw
+      .replace(/\n/g, ' ')
+      .replace(/[\u00b4`\u2018\u2019\u201a]/g, "'")
+      .replace(/[\u201c\u201d\u201e\u00ab\u00bb]/g, '"')
+      .replace(/ {2,}/g, ' ')
+      .replace(/^ /, '');
+    const w = v.split(' ');
+    for (let i = 0; i < w.length - 1; i++) {
+      const want = tw[i] || '';
+      const joined = w[i] + w[i + 1];
+      if (/[^\p{L}\p{N}]$/u.test(w[i]) && w[i] !== want && want.startsWith(w[i]) && (want.startsWith(joined) || joined.length <= want.length)) {
+        w.splice(i, 2, joined);
+        i--;
+      }
+    }
+    return w.join(' ');
+  }
+
   function onInput(e) {
     if (screen !== 'test' || finished) return;
     const input = e.target;
     // Zeilenumbruch = Leerzeichen, keine doppelten Leerzeichen, nicht mit Leerzeichen anfangen
-    let v = input.value.replace(/\n/g, ' ').replace(/ {2,}/g, ' ').replace(/^ /, '');
     const tw = tWords();
+    let v = normalize(input.value, tw);
     // nicht über das letzte Wort hinaus
     if (v.split(' ').length > tw.length) v = v.split(' ').slice(0, tw.length).join(' ');
     const prev = typed;
