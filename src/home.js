@@ -96,7 +96,7 @@ export function setupHome(api) {
   const expanded = new Set(readJSON('homeExpanded', []));    // aufgeklappte Ordner in der Seitenleiste
   const bitmaps = new Map(); // Vorschaubilder: Notiz-ID -> { key, bitmap }
   const indexer = { running: false, pending: 0, stop: false }; // Handschrift für die Suche lesen
-  // Startseite "Heute": Stundenplan, Hausaufgaben, Termine (siehe today.js)
+  // Startseite "Heute": Stundenplan, Fächer des Tages, Wochenplan (siehe today.js)
   const today = setupToday({
     openNote: (id, focus) => api.openNote(id, focus),
     openFolder: (id) => openFolder(id),
@@ -106,7 +106,7 @@ export function setupHome(api) {
       folders.push(folder);
       return folder;
     },
-    saveNoteMeta: (note) => store.putNote(note),
+    createNote: (folderId, name) => api.createNote(folderId, name),
     refresh: () => render(),
     openSettings: () => showSettings(),
   });
