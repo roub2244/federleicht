@@ -15,8 +15,7 @@ const ICON = {
 const SECTIONS = [
   ['now', 'Jetzt-Karte', 'Welche Stunde gerade läuft, mit Restzeit'],
   ['day', 'Tagesplan', 'Stunden des Tages wie in EduPage, zum Blättern'],
-  ['hw', 'Hausaufgaben', 'Offene und erledigte Hausaufgaben'],
-  ['events', 'Tests & Termine', 'Klausuren, Tests und Termine mit Countdown'],
+  ['subjects', 'Fächer des Tages', 'Jedes Fach mit Ordner, letzter Notiz und „Neue Notiz“'],
   ['week', 'Wochenplan', 'Ganze Woche Mo–Fr mit A/B-Woche'],
 ];
 
@@ -81,8 +80,6 @@ export function openSettings({ onChange } = {}) {
           <input type="checkbox" class="switch" data-st="breaks" ${P.breaks ? 'checked' : ''} /></label>
         <label class="switch-row st-row"><span><b>Volle Namen der Lehrkräfte</b><small>„Gerhard Schott“ statt „Scho“</small></span>
           <input type="checkbox" class="switch" data-st="fullTeacher" ${P.fullTeacher ? 'checked' : ''} /></label>
-        <label class="switch-row st-row"><span><b>Erledigte Hausaufgaben anzeigen</b><small>Link „… erledigt ansehen“ unter der Liste</small></span>
-          <input type="checkbox" class="switch" data-st="showDone" ${P.showDone ? 'checked' : ''} /></label>
       </section>
       <section class="st-sec">
         <h3>Stundenplan</h3>
@@ -126,7 +123,7 @@ export function openSettings({ onChange } = {}) {
           tt.timetable().abWeeks = el.checked;
           tt.save();
           render(card);
-        } else if (k === 'breaks' || k === 'fullTeacher' || k === 'showDone') setPref(k, el.checked);
+        } else if (k === 'breaks' || k === 'fullTeacher') setPref(k, el.checked);
         changed(k);
       });
       card.addEventListener('input', (e) => {

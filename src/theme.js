@@ -5,8 +5,7 @@
 //   accent:   Akzentfarbe (siehe ACCENTS)
 //   start:    'today' | 'all' | 'last'  – was beim Öffnen der App kommt
 //   name:     Vorname für die Begrüßung ("Guten Morgen, Robin")
-//   sections: { now, day, hw, events, week } – welche Teile die Startseite "Heute" zeigt
-//   showDone: erledigte Hausaufgaben unten anzeigen
+//   sections: { now, day, subjects, week } – welche Teile die Startseite "Heute" zeigt
 //   fullTeacher: Lehrkräfte mit vollem Namen (statt Kürzel)
 //   breaks:   Pausen im Tagesplan anzeigen
 //
@@ -28,8 +27,7 @@ const DEFAULTS = {
   accent: 'blue',
   start: 'today',
   name: '',
-  sections: { now: true, day: true, hw: true, events: true, week: true },
-  showDone: true,
+  sections: { now: true, day: true, subjects: true, week: true },
   fullTeacher: true,
   breaks: true,
 };
